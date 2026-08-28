@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Videocam
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.icons.filled.AutoAwesome
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon

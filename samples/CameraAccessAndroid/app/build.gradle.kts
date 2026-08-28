@@ -64,7 +64,7 @@ dependencies {
   implementation(libs.androidx.exifinterface)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
-  implementation(libs.androidx.material.icons.extended)
+  implementation(libs.androidx.material.icons.core)
   implementation(libs.androidx.material3)
   implementation(libs.kotlinx.collections.immutable)
   implementation(libs.mwdat.core)

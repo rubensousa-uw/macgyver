@@ -32,9 +32,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.icons.filled.CallEnd
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
