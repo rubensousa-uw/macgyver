@@ -195,7 +195,13 @@ class LiveKitSessionViewModel(
 
     // MARK: Glasses feed (DAT stream -> LiveKit bridge)
 
-    private val glassesSelector: DeviceSelector = AutoDeviceSelector()
+    // AutoDeviceSelector reads the DAT device manager at construction time. Keep the
+    // phone-first ViewModel constructible before DAT is needed, while ensuring that
+    // the glasses path initializes DAT before it creates the selector.
+    private val glassesSelector: DeviceSelector by lazy {
+        WearablesInit.ensure(getApplication())
+        AutoDeviceSelector()
+    }
     private var glassesSession: DeviceSession? = null
     private var glassesCamera: Camera? = null
     private var glassesStream: Stream? = null
