@@ -33,6 +33,10 @@ android {
   }
 
   buildTypes {
+    debug {
+      // Keep release arm64-only, but package x86_64 for the local instrumentation AVD.
+      ndk { abiFilters += "x86_64" }
+    }
     release {
       isMinifyEnabled = true
       isShrinkResources = true

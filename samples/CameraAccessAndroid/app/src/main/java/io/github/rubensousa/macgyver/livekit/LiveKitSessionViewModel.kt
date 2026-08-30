@@ -16,14 +16,17 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
-import com.meta.wearable.dat.camera.StreamSession
-import com.meta.wearable.dat.camera.startStreamSession
+import com.meta.wearable.dat.camera.Camera
+import com.meta.wearable.dat.camera.Stream
+import com.meta.wearable.dat.camera.addCamera
+import com.meta.wearable.dat.camera.removeCamera
 import com.meta.wearable.dat.camera.types.StreamConfiguration
-import com.meta.wearable.dat.camera.types.StreamSessionState
+import com.meta.wearable.dat.camera.types.StreamState
 import com.meta.wearable.dat.camera.types.VideoQuality
 import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
 import com.meta.wearable.dat.core.selectors.DeviceSelector
+import com.meta.wearable.dat.core.session.DeviceSession
 import io.github.rubensousa.macgyver.settings.CaptureSource
 import io.github.rubensousa.macgyver.settings.GatewayApi
 import io.github.rubensousa.macgyver.settings.IntelligenceEngine
@@ -193,7 +196,9 @@ class LiveKitSessionViewModel(
     // MARK: Glasses feed (DAT stream -> LiveKit bridge)
 
     private val glassesSelector: DeviceSelector = AutoDeviceSelector()
-    private var glassesSession: StreamSession? = null
+    private var glassesSession: DeviceSession? = null
+    private var glassesCamera: Camera? = null
+    private var glassesStream: Stream? = null
     private val glassesFeedJobs = mutableListOf<Job>()
 
     // Wi-Fi Direct link negotiation between phone and glasses is flaky in
@@ -450,7 +455,7 @@ class LiveKitSessionViewModel(
 
     /**
      * Phone mode joins the room on sight -- camera, mic and the assistant all
-     * come up together (mirrors iOS StreamSessionView's launch task). Runs
+     * come up together (mirrors the iOS stream view launch task). Runs
      * once per stint in phone mode; returns whether a start was initiated.
      * Declines (without consuming the one-shot) until the runtime permissions
      * exist, so the first-ever launch auto-starts right after the grant
@@ -642,36 +647,43 @@ class LiveKitSessionViewModel(
         if (glassesSession != null) return
         WearablesInit.ensure(getApplication())
         StreamingService.start(getApplication())
-        val session = Wearables.startStreamSession(
-            getApplication(),
-            glassesSelector,
-            StreamConfiguration(videoQuality = VideoQuality.MEDIUM, 24),
-        )
-        glassesSession = session
-        // Conversion is a plain memcpy but runs per frame; keep it off main.
-        glassesFeedJobs += viewModelScope.launch(Dispatchers.Default) {
-            var frames = 0L
-            session.videoStream.collect { frame ->
-                if (frames == 0L || frames % 100 == 0L) {
-                    Log.i(TAG, "glasses frame #$frames ${frame.width}x${frame.height}")
-                }
-                frames++
-                glassesCapturer?.pushI420(frame.buffer, frame.width, frame.height)
+        Wearables.createSession(glassesSelector)
+            .onSuccess { session ->
+                glassesSession = session
+                session.start()
+                session.addCamera(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24, compressVideo = false))
+                    .onSuccess { camera ->
+                        glassesCamera = camera
+                        val stream = camera.stream
+                        glassesStream = stream
+                        glassesFeedJobs += viewModelScope.launch(Dispatchers.Default) {
+                            var frames = 0L
+                            stream.videoStream.collect { frame ->
+                                val expectedI420Bytes = frame.width.toLong() * frame.height * 3 / 2
+                                if (
+                                    frame.isCompressed ||
+                                        frame.isCodecConfig ||
+                                        expectedI420Bytes !in 1..Int.MAX_VALUE ||
+                                        frame.buffer.remaining().toLong() != expectedI420Bytes
+                                ) return@collect
+                                if (frames == 0L || frames % 100 == 0L) Log.i(TAG, "glasses raw frame #$frames ${frame.width}x${frame.height}")
+                                frames++
+                                glassesCapturer?.pushI420(frame.buffer, frame.width, frame.height)
+                            }
+                        }
+                        glassesFeedJobs += viewModelScope.launch {
+                            stream.state.collect { state ->
+                                _uiState.update { it.copy(glassesStreaming = state == StreamState.STREAMING) }
+                                if (state == StreamState.STREAMING) {
+                                    glassesRetryCount = 0; glassesRetryJob?.cancel(); glassesRetryJob = null
+                                } else if (state == StreamState.STOPPED || state == StreamState.CLOSED) scheduleGlassesRetry()
+                            }
+                        }
+                        stream.start().onFailure { _, _ -> stopGlassesFeed() }
+                    }
+                    .onFailure { _, _ -> stopGlassesFeed() }
             }
-        }
-        glassesFeedJobs += viewModelScope.launch {
-            session.state.collect { sessionState ->
-                Log.i(TAG, "glasses session state: $sessionState")
-                _uiState.update { it.copy(glassesStreaming = sessionState == StreamSessionState.STREAMING) }
-                if (sessionState == StreamSessionState.STREAMING) {
-                    glassesRetryCount = 0
-                    glassesRetryJob?.cancel()
-                    glassesRetryJob = null
-                } else {
-                    scheduleGlassesRetry()
-                }
-            }
-        }
+            .onFailure { _, _ -> stopGlassesFeed() }
     }
 
     private fun scheduleGlassesRetry() {
@@ -696,15 +708,20 @@ class LiveKitSessionViewModel(
     private fun stopGlassesFeed() {
         glassesRetryJob?.cancel()
         glassesRetryJob = null
-        if (glassesSession == null) return
         glassesFeedJobs.forEach { it.cancel() }
         glassesFeedJobs.clear()
+        val activeCamera = glassesCamera
+        val activeSession = glassesSession
+        glassesStream = null
+        glassesCamera = null
+        glassesSession = null
         try {
-            glassesSession?.close()
+            activeCamera?.stop()
+            activeSession?.removeCamera()
+            activeSession?.stop()
         } catch (e: Exception) {
             Log.w(TAG, "glasses session close failed: ${e.message}")
         }
-        glassesSession = null
         StreamingService.stop(getApplication())
         _uiState.update { it.copy(glassesStreaming = false) }
     }

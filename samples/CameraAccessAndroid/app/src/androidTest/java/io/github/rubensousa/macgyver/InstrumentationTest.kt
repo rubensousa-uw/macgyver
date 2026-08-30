@@ -33,6 +33,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import com.meta.wearable.dat.mockdevice.MockDeviceKit
+import com.meta.wearable.dat.mockdevice.api.GlassesModel
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -61,7 +62,7 @@ class InstrumentationTest {
 
   @After
   fun tearDown() {
-    MockDeviceKit.getInstance(targetContext).reset()
+    MockDeviceKit.getInstance(targetContext).disable()
   }
 
   @Test
@@ -77,7 +78,8 @@ class InstrumentationTest {
   fun showsNonStreamScreenWhenMockPaired() {
     val nonStreamScreenText = targetContext.getString(R.string.non_stream_screen_description)
     val mockDeviceKit = MockDeviceKit.getInstance(targetContext)
-    mockDeviceKit.pairRaybanMeta().powerOn()
+    mockDeviceKit.enable()
+    mockDeviceKit.pairGlasses(GlassesModel.RAYBAN_META).getOrThrow().powerOn()
 
     composeTestRule.waitUntilExactlyOneExists(hasText(nonStreamScreenText), timeoutMillis = 5000)
   }
@@ -85,16 +87,18 @@ class InstrumentationTest {
   @Test
   fun startThenStopStreaming() {
     val startStreamButtonTitle = targetContext.getString(R.string.stream_button_title)
+    val nonStreamScreenText = targetContext.getString(R.string.non_stream_screen_description)
     val streamContentDescription = targetContext.getString(R.string.live_stream)
     val captureButtonIcon = targetContext.getString(R.string.capture_photo)
     val capturedImageContentDescription = targetContext.getString(R.string.captured_photo)
 
     // Pair mock device and provide fake camera feed and captured image
     val mockDeviceKit = MockDeviceKit.getInstance(targetContext)
-    val device = mockDeviceKit.pairRaybanMeta()
+    mockDeviceKit.enable()
+    val device = mockDeviceKit.pairGlasses(GlassesModel.RAYBAN_META).getOrThrow()
     device.powerOn()
     device.don()
-    val mockCameraKit = device.getCameraKit()
+    val mockCameraKit = device.services.camera
     mockCameraKit.setCameraFeed(getFileUri("plant.mp4"))
     mockCameraKit.setCapturedImage(getFileUri("plant.png"))
 
@@ -111,6 +115,12 @@ class InstrumentationTest {
         hasContentDescription(capturedImageContentDescription),
         timeoutMillis = 15000,
     )
+
+    // Exercise the DAT 0.9 camera/session teardown through the UI. Calling
+    // this path again from a later lifecycle callback is safe because the
+    // ViewModel clears its handles before stopping and detaching them.
+    composeTestRule.onNodeWithText("Stop").performClick()
+    composeTestRule.waitUntilExactlyOneExists(hasText(nonStreamScreenText), timeoutMillis = 5000)
   }
 
   private fun grantPermissions() {

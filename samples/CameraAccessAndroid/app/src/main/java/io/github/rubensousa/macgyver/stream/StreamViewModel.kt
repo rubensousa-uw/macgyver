@@ -24,15 +24,19 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.meta.wearable.dat.camera.StreamSession
-import com.meta.wearable.dat.camera.startStreamSession
+import com.meta.wearable.dat.camera.Camera
+import com.meta.wearable.dat.camera.Stream
+import com.meta.wearable.dat.camera.addCamera
+import com.meta.wearable.dat.camera.removeCamera
 import com.meta.wearable.dat.camera.types.PhotoData
 import com.meta.wearable.dat.camera.types.StreamConfiguration
-import com.meta.wearable.dat.camera.types.StreamSessionState
+import com.meta.wearable.dat.camera.types.StreamState
 import com.meta.wearable.dat.camera.types.VideoFrame
 import com.meta.wearable.dat.camera.types.VideoQuality
 import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.selectors.DeviceSelector
+import com.meta.wearable.dat.core.session.DeviceSession
+import com.meta.wearable.dat.core.session.DeviceSessionState
 import io.github.rubensousa.macgyver.phone.PhoneCameraManager
 import io.github.rubensousa.macgyver.wearables.WearablesViewModel
 import io.github.rubensousa.macgyver.webrtc.WebRTCSessionViewModel
@@ -59,13 +63,16 @@ class StreamViewModel(
   }
 
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
-  private var streamSession: StreamSession? = null
+  private var deviceSession: DeviceSession? = null
+  private var camera: Camera? = null
+  private var stream: Stream? = null
 
   private val _uiState = MutableStateFlow(INITIAL_STATE)
   val uiState: StateFlow<StreamUiState> = _uiState.asStateFlow()
 
   private var videoJob: Job? = null
   private var stateJob: Job? = null
+  private var sessionStateJob: Job? = null
 
   // macgyver additions
   var webrtcViewModel: WebRTCSessionViewModel? = null
@@ -74,32 +81,37 @@ class StreamViewModel(
   fun startStream() {
     videoJob?.cancel()
     stateJob?.cancel()
+    sessionStateJob?.cancel()
 
     // Start foreground service to keep streaming alive in background / screen locked
     StreamingService.start(getApplication())
 
-    val streamSession =
-        Wearables.startStreamSession(
-                getApplication(),
-                deviceSelector,
-                StreamConfiguration(videoQuality = VideoQuality.MEDIUM, 24),
-            )
-            .also { streamSession = it }
     _uiState.update { it.copy(streamingMode = StreamingMode.GLASSES) }
-    videoJob = viewModelScope.launch { streamSession.videoStream.collect { handleVideoFrame(it) } }
-    stateJob =
-        viewModelScope.launch {
-          streamSession.state.collect { currentState ->
-            val prevState = _uiState.value.streamSessionState
-            _uiState.update { it.copy(streamSessionState = currentState) }
-
-            // navigate back when state transitioned to STOPPED
-            if (currentState != prevState && currentState == StreamSessionState.STOPPED) {
-              stopStream()
-              wearablesViewModel.navigateToDeviceSelection()
-            }
+    Wearables.createSession(deviceSelector)
+        .onSuccess { created ->
+          deviceSession = created
+          sessionStateJob = viewModelScope.launch {
+            created.state.collect { if (it == DeviceSessionState.STOPPED) stopStream() }
           }
+          created.start()
+          created.addCamera(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24, compressVideo = false))
+              .onSuccess { addedCamera ->
+                camera = addedCamera
+                stream = addedCamera.stream
+                videoJob = viewModelScope.launch { addedCamera.stream.videoStream.collect { handleVideoFrame(it) } }
+                stateJob = viewModelScope.launch {
+                  addedCamera.stream.state.collect { currentState ->
+                    _uiState.update { it.copy(streamSessionState = currentState) }
+                    if (currentState == StreamState.STOPPED || currentState == StreamState.CLOSED) {
+                      wearablesViewModel.navigateToDeviceSelection()
+                    }
+                  }
+                }
+                addedCamera.stream.start()
+              }
+              .onFailure { _, _ -> stopStream() }
         }
+        .onFailure { _, _ -> stopStream() }
   }
 
   fun startPhoneCamera(lifecycleOwner: LifecycleOwner) {
@@ -115,7 +127,7 @@ class StreamViewModel(
     _uiState.update {
       it.copy(
         streamingMode = StreamingMode.PHONE,
-        streamSessionState = StreamSessionState.STREAMING,
+        streamSessionState = StreamState.STREAMING,
       )
     }
     manager.start(lifecycleOwner)
@@ -130,8 +142,19 @@ class StreamViewModel(
     videoJob = null
     stateJob?.cancel()
     stateJob = null
-    streamSession?.close()
-    streamSession = null
+    sessionStateJob?.cancel()
+    sessionStateJob = null
+
+    // A Camera owns its child Stream in DAT 0.9. Stop it before detaching the
+    // capability from the session, then discard the terminal session.
+    val activeCamera = camera
+    val activeSession = deviceSession
+    stream = null
+    camera = null
+    deviceSession = null
+    activeCamera?.stop()
+    activeSession?.removeCamera()
+    activeSession?.stop()
     phoneCameraManager?.stop()
     phoneCameraManager = null
     _uiState.update { INITIAL_STATE }
@@ -143,7 +166,7 @@ class StreamViewModel(
       return
     }
 
-    if (uiState.value.streamSessionState == StreamSessionState.STREAMING) {
+    if (uiState.value.streamSessionState == StreamState.STREAMING) {
       // Phone mode: capture current video frame as photo
       if (uiState.value.streamingMode == StreamingMode.PHONE) {
         uiState.value.videoFrame?.let { frame ->
@@ -156,7 +179,7 @@ class StreamViewModel(
       _uiState.update { it.copy(isCapturing = true) }
 
       viewModelScope.launch {
-        streamSession
+        stream
             ?.capturePhoto()
             ?.onSuccess { photoData ->
               Log.d(TAG, "Photo capture successful")
@@ -210,6 +233,16 @@ class StreamViewModel(
   }
 
   private fun handleVideoFrame(videoFrame: VideoFrame) {
+    val expectedI420Bytes = videoFrame.width.toLong() * videoFrame.height * 3 / 2
+    if (
+        videoFrame.isCompressed ||
+            videoFrame.isCodecConfig ||
+            expectedI420Bytes !in 1..Int.MAX_VALUE ||
+            videoFrame.buffer.remaining().toLong() != expectedI420Bytes
+    ) {
+      Log.w(TAG, "Rejected non-raw camera frame")
+      return
+    }
     // VideoFrame contains raw I420 video data in a ByteBuffer
     val buffer = videoFrame.buffer
     val dataSize = buffer.remaining()

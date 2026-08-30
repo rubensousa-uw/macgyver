@@ -19,7 +19,8 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.meta.wearable.dat.mockdevice.MockDeviceKit
-import com.meta.wearable.dat.mockdevice.api.MockRaybanMeta
+import com.meta.wearable.dat.mockdevice.api.GlassesModel
+import com.meta.wearable.dat.mockdevice.api.MockGlasses
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,18 +44,14 @@ class MockDeviceKitViewModel(application: Application) : AndroidViewModel(applic
     viewModelScope.launch {
       try {
         Log.d(TAG, "Pairing RayBan Meta device")
-        val mockDevice = mockDeviceKit.pairRaybanMeta()
-        val deviceName = "RayBan Meta Glasses"
-        val deviceInfo =
-            MockDeviceInfo(
-                device = mockDevice,
-                deviceId = UUID.randomUUID().toString(),
-                deviceName = deviceName,
-            )
-        _uiState.update { currentState ->
-          currentState.copy(pairedDevices = currentState.pairedDevices + deviceInfo)
-        }
-        Log.d(TAG, "Successfully paired RayBan Meta device: ${deviceInfo.deviceId}")
+        mockDeviceKit.pairGlasses(GlassesModel.RAYBAN_META).fold(
+            onSuccess = { mockDevice ->
+              val deviceInfo = MockDeviceInfo(mockDevice, UUID.randomUUID().toString(), "RayBan Meta Glasses")
+              _uiState.update { it.copy(pairedDevices = it.pairedDevices + deviceInfo) }
+              Log.d(TAG, "Successfully paired RayBan Meta device: ${deviceInfo.deviceId}")
+            },
+            onFailure = { error, _ -> Log.e(TAG, "Failed to pair glasses: $error") },
+        )
       } catch (e: Exception) {
         Log.e(TAG, "Failed to pair RayBan Meta device", e)
       }
@@ -104,9 +101,8 @@ class MockDeviceKitViewModel(application: Application) : AndroidViewModel(applic
     viewModelScope.launch {
       try {
         Log.d(TAG, "Setting camera feed from URI: $uri for device: ${deviceInfo.deviceId}")
-        // getCameraKit().setCameraFeed() sets video content for streaming
-        // This video will be streamed when StreamSession.videoStream is active
-        deviceInfo.device.getCameraKit().setCameraFeed(uri)
+        // The camera service supplies video content to the attached camera stream.
+        deviceInfo.device.services.camera.setCameraFeed(uri)
         updateDeviceInfo(deviceInfo.copy(hasCameraFeed = true))
         Log.d(TAG, "Successfully set camera feed for device: ${deviceInfo.deviceId}")
       } catch (e: Exception) {
@@ -119,9 +115,8 @@ class MockDeviceKitViewModel(application: Application) : AndroidViewModel(applic
     viewModelScope.launch {
       try {
         Log.d(TAG, "Setting captured image from URI: $uri for device: ${deviceInfo.deviceId}")
-        // getCameraKit().setCapturedImage() sets photo for capture operations
-        // This image will be returned when StreamSession.capturePhoto() is called
-        deviceInfo.device.getCameraKit().setCapturedImage(uri)
+        // The camera service supplies a still image to camera capture operations.
+        deviceInfo.device.services.camera.setCapturedImage(uri)
         updateDeviceInfo(deviceInfo.copy(hasCapturedImage = true))
         Log.d(TAG, "Successfully set captured image for device: ${deviceInfo.deviceId}")
       } catch (e: Exception) {
@@ -147,7 +142,7 @@ class MockDeviceKitViewModel(application: Application) : AndroidViewModel(applic
   private fun executeMockDeviceOperation(
       deviceInfo: MockDeviceInfo,
       operationName: String,
-      operation: (MockRaybanMeta) -> Unit,
+      operation: (MockGlasses) -> Unit,
   ) {
     viewModelScope.launch {
       try {

@@ -33,7 +33,7 @@ sealed class GlassesIssue {
 }
 
 data class WearablesUiState(
-    val registrationState: RegistrationState = RegistrationState.Unavailable(),
+    val registrationState: RegistrationState = RegistrationState.UNAVAILABLE,
     val devices: ImmutableList<DeviceIdentifier> = persistentListOf(),
     val recentError: String? = null,
     val isStreaming: Boolean = false,
@@ -44,5 +44,5 @@ data class WearablesUiState(
     val isSettingsVisible: Boolean = false,
     val glassesIssue: GlassesIssue? = null,
 ) {
-  val isRegistered: Boolean = registrationState is RegistrationState.Registered || hasMockDevices
+  val isRegistered: Boolean = registrationState == RegistrationState.REGISTERED || hasMockDevices
 }
