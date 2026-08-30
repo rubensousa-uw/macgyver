@@ -28,6 +28,7 @@ import io.github.rubensousa.macgyver.stream.StreamViewModel
 import java.io.File
 import java.io.FileOutputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -155,13 +156,19 @@ class InstrumentationTest {
 
   private fun startMockCameraStream(): StreamViewModel {
     val device = mockDeviceKit.pairGlasses(GlassesModel.RAYBAN_META).getOrThrow()
+    assertTrue("MockDeviceKit must remain enabled after pairGlasses", mockDeviceKit.isEnabled)
+    assertEquals("pairGlasses must register exactly one mock device", 1, mockDeviceKit.pairedDevices.size)
     device.powerOn()
+    device.unfold()
     device.don()
     device.services.camera.setCameraFeed(getFileUri("plant.mp4"))
     device.services.camera.setCapturedImage(getFileUri("plant.png"))
 
     val wearablesViewModel = composeTestRule.activity.viewModel
     wearablesViewModel.startMonitoring()
+    waitFor("MockDeviceKit paired device in Wearables.devices", UI_TIMEOUT_MS) {
+      wearablesViewModel.uiState.value.hasMockDevices
+    }
     waitFor("MockDeviceKit active device", UI_TIMEOUT_MS) {
       wearablesViewModel.uiState.value.hasActiveDevice
     }
@@ -186,15 +193,14 @@ class InstrumentationTest {
       composeTestRule.waitUntil(timeoutMillis, condition)
     } catch (error: AssertionError) {
       val state = composeTestRule.activity.viewModel.uiState.value
-      Log.e(
-          TAG,
-          "Timed out waiting for $description; paired=${mockDeviceKit.pairedDevices}; " +
-              "hasMockDevices=${state.hasMockDevices}; hasActiveDevice=${state.hasActiveDevice}; " +
-              "registration=${state.registrationState}; devices=${state.devices}",
-          error,
-      )
+      val diagnostic =
+          "Timed out waiting for $description; mockEnabled=${mockDeviceKit.isEnabled}; " +
+              "paired=${mockDeviceKit.pairedDevices}; hasMockDevices=${state.hasMockDevices}; " +
+              "hasActiveDevice=${state.hasActiveDevice}; registration=${state.registrationState}; " +
+              "devices=${state.devices}"
+      Log.e(TAG, diagnostic, error)
       composeTestRule.onRoot(useUnmergedTree = true).printToLog("InstrumentationTest")
-      throw error
+      throw AssertionError(diagnostic, error)
     }
   }
 }
