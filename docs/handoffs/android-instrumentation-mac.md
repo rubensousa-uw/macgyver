@@ -27,6 +27,13 @@ Use `adb devices -l` to confirm the AVD is in `device` state. Do not run the tes
 
 The DAT dependencies are hosted in GitHub Packages. Authenticate GitHub CLI with an account that has access to `facebook/meta-wearables-dat-android` and package-read access, then source the token only for the Gradle process. Do not commit `local.properties`, an access token, or command output containing a token.
 
+`Secrets.kt` is intentionally local and ignored by Git. Before compiling a fresh clone, create it from the checked-in example and leave `gatewayToken` empty; instrumentation does not need a real gateway identity:
+
+```bash
+cp app/src/main/java/io/github/rubensousa/macgyver/Secrets.kt.example \
+  app/src/main/java/io/github/rubensousa/macgyver/Secrets.kt
+```
+
 ## Verification command
 
 From the repository root on macOS:
@@ -39,6 +46,8 @@ export GITHUB_TOKEN="$(gh auth token)"
 
 adb devices -l
 cd samples/CameraAccessAndroid
+cp app/src/main/java/io/github/rubensousa/macgyver/Secrets.kt.example \
+  app/src/main/java/io/github/rubensousa/macgyver/Secrets.kt
 ./gradlew :app:connectedDebugAndroidTest --no-daemon --max-workers=1 --console=plain \
   -Dddmlib.getprop.timeout.sec=60 \
   -Dorg.gradle.jvmargs=-Xmx2g \

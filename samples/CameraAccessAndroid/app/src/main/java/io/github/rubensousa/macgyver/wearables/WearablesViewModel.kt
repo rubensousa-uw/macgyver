@@ -46,8 +46,13 @@ class WearablesViewModel(application: Application) : AndroidViewModel(applicatio
   private val _uiState = MutableStateFlow(WearablesUiState())
   val uiState: StateFlow<WearablesUiState> = _uiState.asStateFlow()
 
-  // AutoDeviceSelector automatically selects the first available wearable device
-  val deviceSelector: DeviceSelector = AutoDeviceSelector()
+  // AutoDeviceSelector touches Wearables immediately. Keep it lazy so phone mode does not
+  // initialize DAT at activity creation, but make every consumer pass through the same
+  // initialization gate before constructing it.
+  val deviceSelector: DeviceSelector by lazy {
+    WearablesInit.ensure(getApplication())
+    AutoDeviceSelector()
+  }
   private var deviceSelectorJob: Job? = null
 
   private var monitoringStarted = false

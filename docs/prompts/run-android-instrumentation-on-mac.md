@@ -28,10 +28,12 @@ Constraints:
 Steps:
 1. Inspect the current branch and dirty worktree after the source-state check. Confirm JDK 17 and an Android API-35 AVD are available. Use arm64-v8a on Apple Silicon or x86_64 on Intel. Boot it fully and confirm `adb devices -l` shows `device`.
 2. Authenticate only if needed using GitHub CLI, then export GITHUB_TOKEN only in the shell running Gradle: `export GITHUB_TOKEN="$(gh auth token)"`. Do not echo it.
-3. From `samples/CameraAccessAndroid`, run:
+3. From `samples/CameraAccessAndroid`, create the ignored local configuration required for compilation. Do not add a real gateway token:
+   `cp app/src/main/java/io/github/rubensousa/macgyver/Secrets.kt.example app/src/main/java/io/github/rubensousa/macgyver/Secrets.kt`
+4. Run:
    ./gradlew :app:connectedDebugAndroidTest --no-daemon --max-workers=1 --console=plain -Dddmlib.getprop.timeout.sec=60 -Dorg.gradle.jvmargs=-Xmx2g -Dkotlin.daemon.jvm.options=-Xmx1g
-4. If it passes, inspect `app/build/reports/androidTests/connected/debug/index.html`, confirm all three InstrumentationTest cases passed, run `git diff --check`, and append the exact command/result/date to docs/dat-migration.md. State explicitly that this proves MockDeviceKit/SDK behavior only, not physical Adventurer camera support.
-5. If it fails, do not guess or broaden scope. Return the failure tail, report path, `adb devices -l`, Mac architecture, emulator API/image/ABI, and any relevant logcat tail. Leave the migration record accurate.
+5. If it passes, inspect `app/build/reports/androidTests/connected/debug/index.html`, confirm all three InstrumentationTest cases passed, run `git diff --check`, and append the exact command/result/date to docs/dat-migration.md. State explicitly that this proves MockDeviceKit/SDK behavior only, not physical Adventurer camera support.
+6. If it fails, do not guess or broaden scope. Return the failure tail, report path, `adb devices -l`, Mac architecture, emulator API/image/ABI, and any relevant logcat tail. Leave the migration record accurate.
 
 Final response: state pass/fail/inconclusive, list the tests actually executed, link or name the report, list changed files, and clearly separate emulator evidence from physical-hardware verification.
 ````
