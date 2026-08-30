@@ -73,6 +73,7 @@ class StreamViewModel(
   private var videoJob: Job? = null
   private var stateJob: Job? = null
   private var sessionStateJob: Job? = null
+  private var foregroundServiceStarted = false
 
   // macgyver additions
   var webrtcViewModel: WebRTCSessionViewModel? = null
@@ -82,9 +83,6 @@ class StreamViewModel(
     videoJob?.cancel()
     stateJob?.cancel()
     sessionStateJob?.cancel()
-
-    // Start foreground service to keep streaming alive in background / screen locked
-    StreamingService.start(getApplication())
 
     _uiState.update { it.copy(streamingMode = StreamingMode.GLASSES) }
     Wearables.createSession(deviceSelector)
@@ -102,6 +100,9 @@ class StreamViewModel(
                 stateJob = viewModelScope.launch {
                   addedCamera.stream.state.collect { currentState ->
                     _uiState.update { it.copy(streamSessionState = currentState) }
+                    if (currentState == StreamState.STREAMING) {
+                      startForegroundService()
+                    }
                     if (currentState == StreamState.STOPPED || currentState == StreamState.CLOSED) {
                       wearablesViewModel.navigateToDeviceSelection()
                     }
@@ -135,8 +136,10 @@ class StreamViewModel(
   }
 
   fun stopStream() {
-    // Stop foreground service
-    StreamingService.stop(getApplication())
+    if (foregroundServiceStarted) {
+      StreamingService.stop(getApplication())
+      foregroundServiceStarted = false
+    }
 
     videoJob?.cancel()
     videoJob = null
@@ -158,6 +161,13 @@ class StreamViewModel(
     phoneCameraManager?.stop()
     phoneCameraManager = null
     _uiState.update { INITIAL_STATE }
+  }
+
+  private fun startForegroundService() {
+    if (!foregroundServiceStarted) {
+      foregroundServiceStarted = true
+      StreamingService.start(getApplication())
+    }
   }
 
   fun capturePhoto() {

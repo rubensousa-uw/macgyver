@@ -206,6 +206,7 @@ class LiveKitSessionViewModel(
     private var glassesCamera: Camera? = null
     private var glassesStream: Stream? = null
     private val glassesFeedJobs = mutableListOf<Job>()
+    private var foregroundServiceStarted = false
 
     // Wi-Fi Direct link negotiation between phone and glasses is flaky in
     // dense RF; when it fails the stream starves on BLE and dies. Rather than
@@ -652,7 +653,6 @@ class LiveKitSessionViewModel(
     private fun ensureGlassesFeed() {
         if (glassesSession != null) return
         WearablesInit.ensure(getApplication())
-        StreamingService.start(getApplication())
         Wearables.createSession(glassesSelector)
             .onSuccess { session ->
                 glassesSession = session
@@ -681,6 +681,7 @@ class LiveKitSessionViewModel(
                             stream.state.collect { state ->
                                 _uiState.update { it.copy(glassesStreaming = state == StreamState.STREAMING) }
                                 if (state == StreamState.STREAMING) {
+                                    startForegroundService()
                                     glassesRetryCount = 0; glassesRetryJob?.cancel(); glassesRetryJob = null
                                 } else if (state == StreamState.STOPPED || state == StreamState.CLOSED) scheduleGlassesRetry()
                             }
@@ -728,8 +729,18 @@ class LiveKitSessionViewModel(
         } catch (e: Exception) {
             Log.w(TAG, "glasses session close failed: ${e.message}")
         }
-        StreamingService.stop(getApplication())
+        if (foregroundServiceStarted) {
+            StreamingService.stop(getApplication())
+            foregroundServiceStarted = false
+        }
         _uiState.update { it.copy(glassesStreaming = false) }
+    }
+
+    private fun startForegroundService() {
+        if (!foregroundServiceStarted) {
+            foregroundServiceStarted = true
+            StreamingService.start(getApplication())
+        }
     }
 
     // MARK: Freeze (pin a frame for the model to refer to)

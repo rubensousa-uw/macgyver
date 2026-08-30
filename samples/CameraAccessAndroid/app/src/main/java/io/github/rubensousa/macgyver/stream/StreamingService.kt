@@ -61,13 +61,21 @@ class StreamingService : Service() {
     super.onCreate()
     Log.d(TAG, "Service created")
     createNotificationChannel()
+    // Android gives a short deadline after startForegroundService(). Promote
+    // the service while it is being created, before any stream/session work
+    // can occupy the app process.
+    startAsForeground()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     Log.d(TAG, "Service started")
+    acquireWakeLock()
 
+    return START_STICKY
+  }
+
+  private fun startAsForeground() {
     val notification = createNotification()
-
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       startForeground(
           NOTIFICATION_ID,
@@ -77,10 +85,6 @@ class StreamingService : Service() {
     } else {
       startForeground(NOTIFICATION_ID, notification)
     }
-
-    acquireWakeLock()
-
-    return START_STICKY
   }
 
   override fun onDestroy() {
