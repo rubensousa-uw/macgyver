@@ -11,9 +11,12 @@ package io.github.rubensousa.macgyver
 import android.Manifest
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToLog
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
@@ -45,8 +48,15 @@ class InstrumentationTest {
 
   companion object {
     private const val PREFS_NAME = "macgyver_settings"
+    private const val TAG = "InstrumentationTest"
     private const val CAPTURE_SOURCE_KEY = "captureSource"
     private const val GLASSES_CAPTURE_SOURCE = "glasses"
+    private const val GATEWAY_BASE_URL_KEY = "gatewayBaseUrl"
+    private const val GATEWAY_TOKEN_KEY = "gatewayToken"
+    // Test-only, syntactically valid values unlock the local access-code gate.
+    // They never leave the device because these tests do not start a call.
+    private const val TEST_GATEWAY_BASE_URL = "https://instrumentation.invalid"
+    private const val TEST_GATEWAY_TOKEN = "instrumentation-token"
     private const val UI_TIMEOUT_MS = 15_000L
     private const val CAMERA_TIMEOUT_MS = 30_000L
   }
@@ -56,22 +66,32 @@ class InstrumentationTest {
   private val composeTestRule = createAndroidComposeRule<MainActivity>()
 
   private val mockAndSettingsRule =
-      TestRule { base: Statement, _: Description ->
+      TestRule { base: Statement, description: Description ->
         object : Statement() {
           override fun evaluate() {
+            val preferences = targetContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             // MainActivity reads this preference during onCreate. Set it and enable the mock
             // before the compose rule creates the activity, not in @Before.
-            targetContext
-                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            preferences
                 .edit()
                 .putString(CAPTURE_SOURCE_KEY, GLASSES_CAPTURE_SOURCE)
                 .commit()
+            // Only the UI-route test needs to pass the local access-code gate. Camera tests
+            // deliberately stay behind it so MainActivity cannot auto-start a LiveKit call
+            // alongside the StreamViewModel lifecycle being verified.
+            if (description.methodName == "showsGlassesHomeWhenNoMockDeviceIsPaired") {
+              preferences
+                  .edit()
+                  .putString(GATEWAY_BASE_URL_KEY, TEST_GATEWAY_BASE_URL)
+                  .putString(GATEWAY_TOKEN_KEY, TEST_GATEWAY_TOKEN)
+                  .commit()
+            }
             mockDeviceKit.enable()
             try {
               base.evaluate()
             } finally {
               mockDeviceKit.disable()
-              targetContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+              preferences.edit().clear().commit()
             }
           }
         }
@@ -85,7 +105,7 @@ class InstrumentationTest {
       )
 
   @get:Rule
-  val rules: TestRule =
+    val rules: TestRule =
       // Grant BLUETOOTH_CONNECT before MockDeviceKit initializes DAT. RuleChain evaluates
       // outer rules first, so reversing these two rules is a functional requirement.
       RuleChain.outerRule(permissionsRule).around(mockAndSettingsRule).around(composeTestRule)
@@ -102,13 +122,17 @@ class InstrumentationTest {
     val streamViewModel = startMockCameraStream()
 
     // The first actual frame, rather than a started-stream state, is the readiness boundary.
-    composeTestRule.waitUntil(CAMERA_TIMEOUT_MS) { streamViewModel.uiState.value.videoFrame != null }
+    waitFor("first mock camera frame", CAMERA_TIMEOUT_MS) {
+      streamViewModel.uiState.value.videoFrame != null
+    }
 
     streamViewModel.capturePhoto()
-    composeTestRule.waitUntil(CAMERA_TIMEOUT_MS) { streamViewModel.uiState.value.capturedPhoto != null }
+    waitFor("mock photo capture", CAMERA_TIMEOUT_MS) {
+      streamViewModel.uiState.value.capturedPhoto != null
+    }
 
     streamViewModel.stopStream()
-    composeTestRule.waitUntil(UI_TIMEOUT_MS) {
+    waitFor("stream stop", UI_TIMEOUT_MS) {
       streamViewModel.uiState.value.streamSessionState == StreamState.STOPPED
     }
   }
@@ -117,11 +141,13 @@ class InstrumentationTest {
   fun mockCameraTeardownIsIdempotent() {
     val streamViewModel = startMockCameraStream()
 
-    composeTestRule.waitUntil(CAMERA_TIMEOUT_MS) { streamViewModel.uiState.value.videoFrame != null }
+    waitFor("first mock camera frame", CAMERA_TIMEOUT_MS) {
+      streamViewModel.uiState.value.videoFrame != null
+    }
     streamViewModel.stopStream()
     streamViewModel.stopStream()
 
-    composeTestRule.waitUntil(UI_TIMEOUT_MS) {
+    waitFor("idempotent stream stop", UI_TIMEOUT_MS) {
       streamViewModel.uiState.value.streamSessionState == StreamState.STOPPED
     }
     assertEquals(StreamState.STOPPED, streamViewModel.uiState.value.streamSessionState)
@@ -136,7 +162,9 @@ class InstrumentationTest {
 
     val wearablesViewModel = composeTestRule.activity.viewModel
     wearablesViewModel.startMonitoring()
-    composeTestRule.waitUntil(UI_TIMEOUT_MS) { wearablesViewModel.uiState.value.hasActiveDevice }
+    waitFor("MockDeviceKit active device", UI_TIMEOUT_MS) {
+      wearablesViewModel.uiState.value.hasActiveDevice
+    }
 
     return StreamViewModel(
             application = composeTestRule.activity.application,
@@ -151,5 +179,22 @@ class InstrumentationTest {
       FileOutputStream(cacheFile).use { output -> input.copyTo(output) }
     }
     return Uri.fromFile(cacheFile)
+  }
+
+  private fun waitFor(description: String, timeoutMillis: Long, condition: () -> Boolean) {
+    try {
+      composeTestRule.waitUntil(timeoutMillis, condition)
+    } catch (error: AssertionError) {
+      val state = composeTestRule.activity.viewModel.uiState.value
+      Log.e(
+          TAG,
+          "Timed out waiting for $description; paired=${mockDeviceKit.pairedDevices}; " +
+              "hasMockDevices=${state.hasMockDevices}; hasActiveDevice=${state.hasActiveDevice}; " +
+              "registration=${state.registrationState}; devices=${state.devices}",
+          error,
+      )
+      composeTestRule.onRoot(useUnmergedTree = true).printToLog("InstrumentationTest")
+      throw error
+    }
   }
 }
