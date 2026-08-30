@@ -86,7 +86,9 @@ class InstrumentationTest {
 
   @get:Rule
   val rules: TestRule =
-      RuleChain.outerRule(mockAndSettingsRule).around(permissionsRule).around(composeTestRule)
+      // Grant BLUETOOTH_CONNECT before MockDeviceKit initializes DAT. RuleChain evaluates
+      // outer rules first, so reversing these two rules is a functional requirement.
+      RuleChain.outerRule(permissionsRule).around(mockAndSettingsRule).around(composeTestRule)
 
   @Test
   fun showsGlassesHomeWhenNoMockDeviceIsPaired() {
