@@ -4,7 +4,7 @@ import { appendTrace } from "./trace.js";
 
 /**
  * Registry of connected app sockets per user, plus helpers that emit events in
- * the exact shape the VisionClaw clients already parse (OpenClawEventClient):
+ * the exact shape the macgyver clients already parse (OpenClawEventClient):
  *   - assistant notifications ride the "heartbeat" event (status "sent" + preview)
  *   - scheduled-task results ride the "cron" event (action "finished" + summary)
  */

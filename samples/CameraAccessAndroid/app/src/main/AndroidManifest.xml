@@ -17,10 +17,10 @@
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="VisionClaw"
+        android:label="macgyver"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.CameraAccess">
+        android:theme="@style/Theme.Macgyver">
 
         <!-- Without Developer Mode, this key will need to be set with ID from app registered in Wearables Developer Center -->
         <meta-data
@@ -32,7 +32,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.CameraAccess">
+            android:theme="@style/Theme.Macgyver">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -41,7 +41,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="cameraaccess" />
+                <data android:scheme="macgyver" />
             </intent-filter>
         </activity>
 

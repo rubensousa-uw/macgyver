@@ -26,7 +26,7 @@ export async function ensureShared(): Promise<{ agentId: string; environmentId: 
   const store = await loadStore();
   if (!store.shared.environmentId) {
     const env = await anthropic.beta.environments.create({
-      name: "visionclaw-cloud",
+      name: "macgyver-cloud",
       config: { type: "cloud", networking: { type: "unrestricted" } },
     });
     store.shared.environmentId = env.id;
@@ -34,7 +34,7 @@ export async function ensureShared(): Promise<{ agentId: string; environmentId: 
   }
   if (!store.shared.agentId) {
     const agent = await anthropic.beta.agents.create({
-      name: "VisionClaw Action Agent",
+      name: "macgyver Action Agent",
       model: wantModel(),
       system: AGENT_SYSTEM_PROMPT,
       mcp_servers: mcpServers(),
@@ -156,7 +156,7 @@ export async function ensureUser(userId: string): Promise<UserResources & { sess
   const u = await userResources(userId);
 
   if (!u.vaultId) {
-    const vault = await anthropic.beta.vaults.create({ display_name: `visionclaw-vault-${userId}` });
+    const vault = await anthropic.beta.vaults.create({ display_name: `macgyver-vault-${userId}` });
     u.vaultId = vault.id;
     console.log(`[provision] vault for ${userId}:`, vault.id);
   }
@@ -167,7 +167,7 @@ export async function ensureUser(userId: string): Promise<UserResources & { sess
     const session = await anthropic.beta.sessions.create({
       agent: agentId,
       environment_id: environmentId,
-      title: `visionclaw:${userId}`,
+      title: `macgyver:${userId}`,
       vault_ids: [u.vaultId],
     });
     u.sessionId = session.id;

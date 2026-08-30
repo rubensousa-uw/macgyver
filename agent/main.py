@@ -1,4 +1,4 @@
-"""VisionClaw voice agent: LiveKit room <-> realtime model, tools via the gateway.
+"""macgyver voice agent: LiveKit room <-> realtime model, tools via the gateway.
 
 The phone publishes mic + camera into a LiveKit room and this worker joins as
 the assistant. Which brain answers is the user's choice, carried in their
@@ -45,9 +45,9 @@ from livekit.agents import (
 )
 from livekit.plugins import google, openai
 
-logger = logging.getLogger("visionclaw-agent")
+logger = logging.getLogger("macgyver-agent")
 
-INSTRUCTIONS = """You are VisionClaw, an AI assistant the user talks to while showing you the
+INSTRUCTIONS = """You are macgyver, an AI assistant the user talks to while showing you the
 world through their phone camera or smart glasses. Keep responses concise and natural.
 
 You can see live video. Answer visual questions directly from what you see.

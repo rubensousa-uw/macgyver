@@ -1,6 +1,6 @@
-# VisionClaw
+# macgyver
 
-![VisionClaw](assets/teaserimage.png)
+![macgyver](assets/teaserimage.png)
 
 A real-time AI assistant for Meta Ray-Ban smart glasses. See what you see, hear what you say, and take actions on your behalf -- all through voice.
 
@@ -63,9 +63,9 @@ Gemini Live API (WebSocket)
 ### 1. Clone and open
 
 ```bash
-git clone https://github.com/sseanliu/VisionClaw.git
-cd VisionClaw/samples/CameraAccess
-open CameraAccess.xcodeproj
+git clone https://github.com/rubensousa-uw/macgyver.git
+cd macgyver/samples/Macgyver
+open Macgyver.xcodeproj
 ```
 
 ### 2. Add your secrets
@@ -73,7 +73,7 @@ open CameraAccess.xcodeproj
 Copy the example file and fill in your values:
 
 ```bash
-cp CameraAccess/Secrets.swift.example CameraAccess/Secrets.swift
+cp Macgyver/Secrets.swift.example Macgyver/Secrets.swift
 ```
 
 Edit `Secrets.swift` with your [Gemini API key](https://aistudio.google.com/apikey) (required) and optional OpenClaw/WebRTC config.
@@ -101,7 +101,7 @@ First, enable Developer Mode in the Meta AI app:
 
 ![How to enable Developer Mode](assets/dev_mode.png)
 
-Then in VisionClaw:
+Then in macgyver:
 1. Tap **"Start Streaming"** in the app
 2. Tap the **AI button** for voice + vision conversation
 
@@ -112,7 +112,7 @@ Then in VisionClaw:
 ### 1. Clone and open
 
 ```bash
-git clone https://github.com/sseanliu/VisionClaw.git
+git clone https://github.com/rubensousa-uw/macgyver.git
 ```
 
 Open `samples/CameraAccessAndroid/` in Android Studio.
@@ -135,7 +135,7 @@ github_token=YOUR_GITHUB_TOKEN
 ### 3. Add your secrets
 
 ```bash
-cd samples/CameraAccessAndroid/app/src/main/java/com/meta/wearable/dat/externalsampleapps/cameraaccess/
+cd samples/CameraAccessAndroid/app/src/main/java/io/github/rubensousa/macgyver/
 cp Secrets.kt.example Secrets.kt
 ```
 
@@ -237,7 +237,7 @@ Now when you talk to the AI, it can execute tasks through OpenClaw.
 
 ### Key Files (iOS)
 
-All source code is in `samples/CameraAccess/CameraAccess/`:
+All source code is in `samples/Macgyver/Macgyver/`:
 
 | File | Purpose |
 |------|---------|
@@ -254,7 +254,7 @@ All source code is in `samples/CameraAccess/CameraAccess/`:
 
 ### Key Files (Android)
 
-All source code is in `samples/CameraAccessAndroid/app/src/main/java/.../cameraaccess/`:
+All source code is in `samples/CameraAccessAndroid/app/src/main/java/io/github/rubensousa/macgyver/`:
 
 | File | Purpose |
 |------|---------|
@@ -306,13 +306,13 @@ Share your glasses POV in real-time to a browser viewer with bidirectional audio
 5. Media flows peer-to-peer: glasses video to browser, browser camera back to iOS PiP
 
 **Key details:**
-- **Signaling server**: Node.js + WebSocket, located at `samples/CameraAccess/server/` -- serves the browser viewer and relays SDP/ICE
+- **Signaling server**: Node.js + WebSocket, located at `samples/Macgyver/server/` -- serves the browser viewer and relays SDP/ICE
 - **NAT traversal**: Google STUN servers + ExpressTURN relay (fetched from `/api/turn`)
 - **Video**: 24 fps, 2.5 Mbps max bitrate
 - **Background handling**: 60-second grace period for iOS app backgrounding -- room stays alive for reconnection
 - **Constraint**: Cannot run simultaneously with Gemini Live (audio device conflict)
 
-For full details, see [`samples/CameraAccess/CameraAccess/WebRTC/README.md`](samples/CameraAccess/CameraAccess/WebRTC/README.md).
+For full details, see [`samples/Macgyver/Macgyver/WebRTC/README.md`](samples/Macgyver/Macgyver/WebRTC/README.md).
 
 ---
 
@@ -365,11 +365,11 @@ For DAT SDK issues, see the [developer documentation](https://wearables.develope
 
 ## Citation
 
-If you use VisionClaw in your research, please cite our paper:
+If you use macgyver in your research, please cite our paper:
 
 ```bibtex
-@article{liu2026visionclaw,
-  title={VisionClaw: Always-On AI Agents through Smart Glasses},
+@article{liu2026macgyver,
+  title={macgyver: Always-On AI Agents through Smart Glasses},
   author={Liu, Xiaoan and Lee, DaeHo and Gonzalez, Eric J and Gonzalez-Franco, Mar and Suzuki, Ryo},
   journal={arXiv preprint arXiv:2604.03486},
   year={2026}

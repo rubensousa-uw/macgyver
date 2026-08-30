@@ -13,13 +13,13 @@ plugins {
 }
 
 android {
-  namespace = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
+  namespace = "io.github.rubensousa.macgyver"
   compileSdk = 35
 
   buildFeatures { buildConfig = true }
 
   defaultConfig {
-    applicationId = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
+    applicationId = "io.github.rubensousa.macgyver"
     minSdk = 31
     targetSdk = 34
     versionCode = 1
@@ -70,7 +70,7 @@ dependencies {
   implementation(libs.mwdat.core)
   implementation(libs.mwdat.camera)
   implementation(libs.mwdat.mockdevice)
-  // VisionClaw additions
+  // macgyver additions
   implementation(libs.okhttp)
   implementation(libs.webrtc)
   implementation(libs.livekit.android)

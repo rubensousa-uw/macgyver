@@ -10,7 +10,7 @@
 #
 # Deploy from a clone of the upstream repo with this file copied in:
 #   git clone https://github.com/taylorwilsdon/google_workspace_mcp.git
-#   cp <visionclaw>/gateway/deploy/gmail-mcp/fly.toml google_workspace_mcp/
+#   cp <macgyver>/gateway/deploy/gmail-mcp/fly.toml google_workspace_mcp/
 #   cd google_workspace_mcp && fly launch --no-deploy --copy-config --name visionclaw-gmail-mcp
 #   fly secrets set GOOGLE_OAUTH_CLIENT_ID=<testing client> GOOGLE_OAUTH_CLIENT_SECRET=...
 #   fly deploy

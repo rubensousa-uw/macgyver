@@ -1,9 +1,9 @@
 {
-  "name": "visionclaw-gateway",
+  "name": "macgyver-gateway",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Hosted action-agent gateway for VisionClaw: speaks the app's OpenClaw-compatible protocol in front, drives Anthropic Managed Agents behind.",
+  "description": "Hosted action-agent gateway for macgyver: speaks the app's OpenClaw-compatible protocol in front, drives Anthropic Managed Agents behind.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",

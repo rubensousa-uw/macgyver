@@ -97,7 +97,7 @@ registerConnectRoutes(app, userFromRequest);
 
 // Reachability probe: the app GETs this path and accepts any 2xx-4xx.
 app.get("/v1/chat/completions", (_req, res) => {
-  res.status(200).json({ ok: true, service: "visionclaw-gateway" });
+  res.status(200).json({ ok: true, service: "macgyver-gateway" });
 });
 
 app.get("/health", (_req, res) => {
@@ -143,7 +143,7 @@ app.post("/v1/chat/completions", async (req, res) => {
         id,
         object: "chat.completion.chunk",
         created,
-        model: "visionclaw-cloud",
+        model: "macgyver-cloud",
         choices: [{ index: 0, delta, finish_reason: finish }],
       })}\n\n`;
     res.write(chunk({ role: "assistant" }));
@@ -237,7 +237,7 @@ app.post("/v1/chat/completions", async (req, res) => {
       id: `chatcmpl-${randomUUID()}`,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: "visionclaw-cloud",
+      model: "macgyver-cloud",
       choices: [
         {
           index: 0,

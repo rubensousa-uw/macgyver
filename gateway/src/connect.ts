@@ -153,7 +153,7 @@ export function registerConnectRoutes(
     const token = String(req.query.token ?? "");
     const userId = userFromRequest(req, token || undefined);
     if (!userId) {
-      res.status(401).send(page("Not signed in", "Open this from the VisionClaw app."));
+      res.status(401).send(page("Not signed in", "Open this from the macgyver app."));
       return;
     }
     const appDef = getApp(String(req.params.appId));
@@ -266,7 +266,7 @@ export function registerConnectRoutes(
             params: {
               protocolVersion: "2025-06-18",
               capabilities: {},
-              clientInfo: { name: "visionclaw-diag", version: "0.1.0" },
+              clientInfo: { name: "macgyver-diag", version: "0.1.0" },
             },
           });
           await mcpCall("tools/list", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });

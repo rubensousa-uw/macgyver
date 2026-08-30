@@ -1,6 +1,7 @@
-# VisionClaw gateway, hosted so the app no longer depends on a machine at home.
+# macgyver gateway, hosted so the app no longer depends on a machine at home.
 #
-#   fly apps create visionclaw-gateway
+#   Existing Fly resource: visionclaw-gateway. Preserve it until an explicit
+#   stateful migration is approved; its user-visible product identity is macgyver.
 #   fly volumes create gateway_data --size 1 --region sjc -a visionclaw-gateway
 #   fly secrets set ANTHROPIC_API_KEY=... GOOGLE_CLIENT_SECRET=... \
 #                   STATE_SECRET=... GATEWAY_TOKENS=... -a visionclaw-gateway

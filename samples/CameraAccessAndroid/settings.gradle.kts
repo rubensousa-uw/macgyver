@@ -53,6 +53,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "CameraAccess"
+rootProject.name = "Macgyver"
 
 include(":app")

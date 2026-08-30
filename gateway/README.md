@@ -1,6 +1,6 @@
-# VisionClaw Gateway (hosted action agent, beta)
+# macgyver Gateway (hosted action agent, beta)
 
-Run VisionClaw's action agent in the cloud so users don't have to install and
+Run macgyver's action agent in the cloud so users don't have to install and
 host a local agent on their own machine. The gateway speaks the exact protocol
 the iOS/Android apps already use (OpenAI-compatible `/v1/chat/completions` +
 the WebSocket event channel), and drives

@@ -1,8 +1,9 @@
-# VisionClaw voice agent worker. Registers with LiveKit and gets dispatched
+# macgyver voice agent worker. Registers with LiveKit and gets dispatched
 # into rooms; must be always-on like the gateway -- a stopped worker means
 # nobody answers when a user connects.
 #
-#   fly apps create visionclaw-agent
+#   Existing Fly resource: visionclaw-agent. Preserve it until an explicit
+#   stateful migration is approved; its user-visible product identity is macgyver.
 #   fly secrets set LIVEKIT_URL=wss://... LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... \
 #                   GOOGLE_API_KEY=... GATEWAY_URL=https://api.visionagents.app \
 #                   GATEWAY_SERVICE_TOKEN=... -a visionclaw-agent
