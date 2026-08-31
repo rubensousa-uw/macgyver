@@ -54,6 +54,24 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * DAT 0.9 may deliver compressed content or codec configuration alongside raw video. Only a
+ * complete, contiguous I420 payload is allowed to enter an app raw-frame path.
+ */
+internal fun isVerifiedContiguousRawI420(
+    width: Int,
+    height: Int,
+    isCompressed: Boolean,
+    isCodecConfig: Boolean,
+    bufferRemaining: Int,
+): Boolean {
+  val expectedI420Bytes = width.toLong() * height * 3 / 2
+  return !isCompressed &&
+      !isCodecConfig &&
+      expectedI420Bytes in 1..Int.MAX_VALUE &&
+      bufferRemaining.toLong() == expectedI420Bytes
+}
+
 class StreamViewModel(
     application: Application,
     private val wearablesViewModel: WearablesViewModel,
@@ -285,12 +303,14 @@ class StreamViewModel(
   }
 
   private fun handleVideoFrame(videoFrame: VideoFrame) {
-    val expectedI420Bytes = videoFrame.width.toLong() * videoFrame.height * 3 / 2
     if (
-        videoFrame.isCompressed ||
-            videoFrame.isCodecConfig ||
-            expectedI420Bytes !in 1..Int.MAX_VALUE ||
-            videoFrame.buffer.remaining().toLong() != expectedI420Bytes
+        !isVerifiedContiguousRawI420(
+            width = videoFrame.width,
+            height = videoFrame.height,
+            isCompressed = videoFrame.isCompressed,
+            isCodecConfig = videoFrame.isCodecConfig,
+            bufferRemaining = videoFrame.buffer.remaining(),
+        )
     ) {
       Log.w(TAG, "Rejected non-raw camera frame")
       return

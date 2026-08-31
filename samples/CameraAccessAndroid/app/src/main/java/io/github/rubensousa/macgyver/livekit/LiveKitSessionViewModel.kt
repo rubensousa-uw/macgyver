@@ -32,6 +32,7 @@ import io.github.rubensousa.macgyver.settings.CaptureSource
 import io.github.rubensousa.macgyver.settings.GatewayApi
 import io.github.rubensousa.macgyver.settings.IntelligenceEngine
 import io.github.rubensousa.macgyver.settings.SettingsManager
+import io.github.rubensousa.macgyver.stream.isVerifiedContiguousRawI420
 import io.github.rubensousa.macgyver.stream.StreamingService
 import io.github.rubensousa.macgyver.wearables.WearablesInit
 import io.livekit.android.LiveKit
@@ -678,12 +679,14 @@ class LiveKitSessionViewModel(
                             glassesFeedJobs += viewModelScope.launch(Dispatchers.Default) {
                                 var frames = 0L
                                 stream.videoStream.collect { frame ->
-                                    val expectedI420Bytes = frame.width.toLong() * frame.height * 3 / 2
                                     if (
-                                        frame.isCompressed ||
-                                            frame.isCodecConfig ||
-                                            expectedI420Bytes !in 1..Int.MAX_VALUE ||
-                                            frame.buffer.remaining().toLong() != expectedI420Bytes
+                                        !isVerifiedContiguousRawI420(
+                                            width = frame.width,
+                                            height = frame.height,
+                                            isCompressed = frame.isCompressed,
+                                            isCodecConfig = frame.isCodecConfig,
+                                            bufferRemaining = frame.buffer.remaining(),
+                                        )
                                     ) return@collect
                                     if (frames == 0L || frames % 100 == 0L) Log.i(TAG, "glasses raw frame #$frames ${frame.width}x${frame.height}")
                                     frames++

@@ -9,7 +9,7 @@ Finish the focused verification for the DAT 0.9 migration on a Mac that can acce
 - Working branch: `feat/dat-0.9`, based on `4706c6a`; carry the current uncommitted migration changes to the Mac before testing.
 - DAT artifacts are pinned together at `0.9.0` in `samples/CameraAccessAndroid/gradle/libs.versions.toml`.
 - The migration replaces the obsolete stream-session ownership with DAT 0.9 `Wearables.createSession` → `DeviceSession.start` → `addCamera` → `Camera.stream.start` lifecycle in the stream owners.
-- `InstrumentationTest` contains three current-route tests. Its rule chain grants runtime permissions first, then prepares the glasses capture-source preference and MockDeviceKit before `MainActivity` launches; `BLUETOOTH_CONNECT` must exist before MockDeviceKit initializes DAT. The camera cases assert the first usable mock frame, photo capture, and idempotent teardown through `StreamViewModel`. The foreground service is deliberately started only after the DAT stream is `STREAMING` and is promoted from `onCreate`, addressing the previous Android 15 service-start deadline failure.
+- `InstrumentationTest` contains four current-route tests. Its rule chain grants runtime permissions first, then prepares the glasses capture-source preference and MockDeviceKit before `MainActivity` launches; `BLUETOOTH_CONNECT` must exist before MockDeviceKit initializes DAT. The camera cases assert the first usable mock frame, photo capture, idempotent teardown, and a shared raw-I420 gate that rejects compressed, codec-configuration, and malformed frames. The foreground service is deliberately started only after the DAT stream is `STREAMING` and is promoted from `onCreate`, addressing the previous Android 15 service-start deadline failure.
 - The HomeScreen test alone writes an inoffensive `.invalid` gateway URL and `instrumentation-token` into app preferences. This bypasses the normal access-code gate for that UI route; it is not a real credential, is cleared during teardown, and must never be copied into production configuration. Camera lifecycle tests remain behind the gate and drive `StreamViewModel` directly, so no automatic LiveKit call competes for the mock device.
 - The debug variant packages both `arm64-v8a` and `x86_64` native libraries for emulator testing. The release variant remains arm64-only.
 - `:app:assembleDebug` already passed on the Linux host. The connected suite is not passing or failing: it is **inconclusive** because that host has no nested KVM and its software-emulated guest became unresponsive.
@@ -62,7 +62,7 @@ The timeout override is harmless on an accelerated Mac and avoids flaky device-p
 The handoff is complete only when all of the following are collected:
 
 1. `:app:connectedDebugAndroidTest` ends with `BUILD SUCCESSFUL`.
-2. The connected-test report at `samples/CameraAccessAndroid/app/build/reports/androidTests/connected/debug/index.html` shows the three instrumentation tests passing.
+2. The connected-test report at `samples/CameraAccessAndroid/app/build/reports/androidTests/connected/debug/index.html` shows all four instrumentation tests passing.
 3. `git diff --check` passes.
 4. The result is added to `docs/dat-migration.md` as MockDeviceKit/SDK evidence only. Do not say that Adventurer hardware or a physical camera was verified.
 

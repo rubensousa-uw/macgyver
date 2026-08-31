@@ -26,9 +26,11 @@ import com.meta.wearable.dat.camera.types.StreamState
 import com.meta.wearable.dat.mockdevice.MockDeviceKit
 import com.meta.wearable.dat.mockdevice.api.GlassesModel
 import io.github.rubensousa.macgyver.stream.StreamViewModel
+import io.github.rubensousa.macgyver.stream.isVerifiedContiguousRawI420
 import java.io.File
 import java.io.FileOutputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -154,6 +156,46 @@ class InstrumentationTest {
       streamViewModel.uiState.value.streamSessionState == StreamState.STOPPED
     }
     assertEquals(StreamState.STOPPED, streamViewModel.uiState.value.streamSessionState)
+  }
+
+  @Test
+  fun rawI420GateRejectsCompressedCodecConfigurationAndMalformedFrames() {
+    assertTrue(
+        isVerifiedContiguousRawI420(
+            width = 4,
+            height = 4,
+            isCompressed = false,
+            isCodecConfig = false,
+            bufferRemaining = 24,
+        )
+    )
+    assertFalse(
+        isVerifiedContiguousRawI420(
+            width = 4,
+            height = 4,
+            isCompressed = true,
+            isCodecConfig = false,
+            bufferRemaining = 24,
+        )
+    )
+    assertFalse(
+        isVerifiedContiguousRawI420(
+            width = 4,
+            height = 4,
+            isCompressed = false,
+            isCodecConfig = true,
+            bufferRemaining = 24,
+        )
+    )
+    assertFalse(
+        isVerifiedContiguousRawI420(
+            width = 4,
+            height = 4,
+            isCompressed = false,
+            isCodecConfig = false,
+            bufferRemaining = 23,
+        )
+    )
   }
 
   private fun startMockCameraStream(): StreamViewModel {
