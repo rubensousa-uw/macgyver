@@ -12,6 +12,7 @@ import android.Manifest
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -87,11 +88,12 @@ class InstrumentationTest {
                   .putString(GATEWAY_TOKEN_KEY, TEST_GATEWAY_TOKEN)
                   .commit()
             }
-            mockDeviceKit.enable()
+            val needsMock = description.methodName != "showsGlassesHomeWhenNoMockDeviceIsPaired"
+            if (needsMock) mockDeviceKit.enable()
             try {
               base.evaluate()
             } finally {
-              mockDeviceKit.disable()
+              if (needsMock) mockDeviceKit.disable()
               preferences.edit().clear().commit()
             }
           }
@@ -191,7 +193,7 @@ class InstrumentationTest {
   private fun waitFor(description: String, timeoutMillis: Long, condition: () -> Boolean) {
     try {
       composeTestRule.waitUntil(timeoutMillis, condition)
-    } catch (error: AssertionError) {
+    } catch (error: ComposeTimeoutException) {
       val state = composeTestRule.activity.viewModel.uiState.value
       val diagnostic =
           "Timed out waiting for $description; mockEnabled=${mockDeviceKit.isEnabled}; " +

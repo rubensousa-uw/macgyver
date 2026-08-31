@@ -45,10 +45,12 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -73,6 +75,7 @@ class StreamViewModel(
   private var videoJob: Job? = null
   private var stateJob: Job? = null
   private var sessionStateJob: Job? = null
+  private var cameraSetupJob: Job? = null
   private var foregroundServiceStarted = false
 
   // macgyver additions
@@ -83,6 +86,7 @@ class StreamViewModel(
     videoJob?.cancel()
     stateJob?.cancel()
     sessionStateJob?.cancel()
+    cameraSetupJob?.cancel()
 
     _uiState.update { it.copy(streamingMode = StreamingMode.GLASSES) }
     Wearables.createSession(deviceSelector)
@@ -92,27 +96,63 @@ class StreamViewModel(
             created.state.collect { if (it == DeviceSessionState.STOPPED) stopStream() }
           }
           created.start()
-          created.addCamera(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24, compressVideo = false))
-              .onSuccess { addedCamera ->
-                camera = addedCamera
-                stream = addedCamera.stream
-                videoJob = viewModelScope.launch { addedCamera.stream.videoStream.collect { handleVideoFrame(it) } }
-                stateJob = viewModelScope.launch {
-                  addedCamera.stream.state.collect { currentState ->
-                    _uiState.update { it.copy(streamSessionState = currentState) }
-                    if (currentState == StreamState.STREAMING) {
-                      startForegroundService()
+          cameraSetupJob =
+              viewModelScope.launch {
+                val sessionState =
+                    created.state.first {
+                      it == DeviceSessionState.STARTED || it == DeviceSessionState.STOPPED
                     }
-                    if (currentState == StreamState.STOPPED || currentState == StreamState.CLOSED) {
-                      wearablesViewModel.navigateToDeviceSelection()
+                if (deviceSession !== created) return@launch
+                if (sessionState != DeviceSessionState.STARTED) {
+                  Log.e(TAG, "DAT session stopped before camera setup")
+                  stopStream()
+                  return@launch
+                }
+                created
+                    .addCamera(
+                        StreamConfiguration(
+                            videoQuality = VideoQuality.MEDIUM,
+                            frameRate = 24,
+                            compressVideo = false,
+                        )
+                    )
+                    .onSuccess { addedCamera ->
+                      camera = addedCamera
+                      stream = addedCamera.stream
+                      videoJob =
+                          viewModelScope.launch(Dispatchers.Default) {
+                            addedCamera.stream.videoStream.collect { handleVideoFrame(it) }
+                          }
+                      stateJob =
+                          viewModelScope.launch {
+                            addedCamera.stream.state.collect { currentState ->
+                              _uiState.update { it.copy(streamSessionState = currentState) }
+                              if (currentState == StreamState.STREAMING) {
+                                startForegroundService()
+                              }
+                              if (
+                                  currentState == StreamState.STOPPED ||
+                                      currentState == StreamState.CLOSED
+                              ) {
+                                wearablesViewModel.navigateToDeviceSelection()
+                              }
+                            }
+                          }
+                      addedCamera.stream.start().onFailure { error, _ ->
+                        Log.e(TAG, "Failed to start DAT camera stream: $error")
+                        stopStream()
+                      }
+                    }
+                    .onFailure { error, _ ->
+                      Log.e(TAG, "Failed to add DAT camera: $error")
+                      stopStream()
                     }
                   }
-                }
-                addedCamera.stream.start()
-              }
-              .onFailure { _, _ -> stopStream() }
         }
-        .onFailure { _, _ -> stopStream() }
+        .onFailure { error, _ ->
+          Log.e(TAG, "Failed to create DAT session: $error")
+          stopStream()
+        }
   }
 
   fun startPhoneCamera(lifecycleOwner: LifecycleOwner) {
@@ -147,6 +187,8 @@ class StreamViewModel(
     stateJob = null
     sessionStateJob?.cancel()
     sessionStateJob = null
+    cameraSetupJob?.cancel()
+    cameraSetupJob = null
 
     // A Camera owns its child Stream in DAT 0.9. Stop it before detaching the
     // capability from the session, then discard the terminal session.
