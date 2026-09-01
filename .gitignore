@@ -7,3 +7,9 @@ samples/CameraAccessAndroid/app/build/
 samples/CameraAccessAndroid/app/src/main/java/**/Secrets.kt
 samples/CameraAccessAndroid/build/
 samples/CameraAccessAndroid/local.properties
+
+# Per-user BMad installation state and generated workflow snapshots.
+_bmad/config.user.toml
+_bmad/custom/config.user.toml
+_bmad/render/
+**/__pycache__/
