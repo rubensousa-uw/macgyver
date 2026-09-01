@@ -2,7 +2,7 @@
 title: 'Migrate and Pin the DAT 0.9 Baseline'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_commit: '4706c6aaae9d7f0daeb5bb9740656c2b74946b3e'
 context:
@@ -83,3 +83,38 @@ DAT 0.9 consolidates camera ownership: `DeviceSession.addStream` was removed in 
 
 **Manual checks (if no CLI):**
 - Compare every `docs/dat-migration.md` decision with the official DAT 0.5–0.9 changelog and confirm no physical-adventurer claim appears.
+
+## Suggested Review Order
+
+**Lifecycle ownership and teardown**
+
+- Follow the primary migrated DAT session from creation through camera stream startup.
+  [`StreamViewModel.kt:122`](../../samples/CameraAccessAndroid/app/src/main/java/io/github/rubensousa/macgyver/stream/StreamViewModel.kt#L122)
+
+- Compare the LiveKit glasses owner’s equivalent session and camera lifecycle.
+  [`LiveKitSessionViewModel.kt:663`](../../samples/CameraAccessAndroid/app/src/main/java/io/github/rubensousa/macgyver/livekit/LiveKitSessionViewModel.kt#L663)
+
+- Verify generation fencing and ordered cleanup for repeated or late teardown.
+  [`StreamViewModel.kt:303`](../../samples/CameraAccessAndroid/app/src/main/java/io/github/rubensousa/macgyver/stream/StreamViewModel.kt#L303)
+
+- Confirm the second owner isolates camera, detach, and session-stop failures.
+  [`LiveKitSessionViewModel.kt:905`](../../samples/CameraAccessAndroid/app/src/main/java/io/github/rubensousa/macgyver/livekit/LiveKitSessionViewModel.kt#L905)
+
+**Raw-frame admission**
+
+- Inspect the shared exact-size, even-dimension I420 gate used by both consumers.
+  [`StreamViewModel.kt:63`](../../samples/CameraAccessAndroid/app/src/main/java/io/github/rubensousa/macgyver/stream/StreamViewModel.kt#L63)
+
+- Confirm the LiveKit bridge cannot receive compressed, codec-only, or malformed payloads.
+  [`GlassesVideoCapturer.kt:54`](../../samples/CameraAccessAndroid/app/src/main/java/io/github/rubensousa/macgyver/livekit/GlassesVideoCapturer.kt#L54)
+
+**Evidence and supporting coverage**
+
+- Review first-frame readiness, photo cleanup, and idempotent test teardown.
+  [`InstrumentationTest.kt:125`](../../samples/CameraAccessAndroid/app/src/androidTest/java/io/github/rubensousa/macgyver/InstrumentationTest.kt#L125)
+
+- Check the official version decisions and the explicit current verification limitation.
+  [`dat-migration.md:7`](../../docs/dat-migration.md#L7)
+
+- Confirm the sprint remains reviewable while fresh checkout verification is deferred.
+  [`sprint-status.yaml:45`](sprint-status.yaml#L45)

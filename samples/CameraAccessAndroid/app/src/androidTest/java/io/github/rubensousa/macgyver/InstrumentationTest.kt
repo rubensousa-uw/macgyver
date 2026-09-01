@@ -91,8 +91,8 @@ class InstrumentationTest {
                   .commit()
             }
             val needsMock = description.methodName != "showsGlassesHomeWhenNoMockDeviceIsPaired"
-            if (needsMock) mockDeviceKit.enable()
             try {
+              if (needsMock) mockDeviceKit.enable()
               base.evaluate()
             } finally {
               if (needsMock) mockDeviceKit.disable()
@@ -125,37 +125,38 @@ class InstrumentationTest {
   @Test
   fun mockDeviceDeliversFirstFrameAndCapturesPhoto() {
     val streamViewModel = startMockCameraStream()
+    try {
+      // The first actual frame, rather than a started-stream state, is the readiness boundary.
+      waitFor("first mock camera frame", CAMERA_TIMEOUT_MS) {
+        streamViewModel.uiState.value.videoFrame != null
+      }
 
-    // The first actual frame, rather than a started-stream state, is the readiness boundary.
-    waitFor("first mock camera frame", CAMERA_TIMEOUT_MS) {
-      streamViewModel.uiState.value.videoFrame != null
-    }
-
-    streamViewModel.capturePhoto()
-    waitFor("mock photo capture", CAMERA_TIMEOUT_MS) {
-      streamViewModel.uiState.value.capturedPhoto != null
-    }
-
-    streamViewModel.stopStream()
-    waitFor("stream stop", UI_TIMEOUT_MS) {
-      streamViewModel.uiState.value.streamSessionState == StreamState.STOPPED
+      streamViewModel.capturePhoto()
+      waitFor("mock photo capture", CAMERA_TIMEOUT_MS) {
+        streamViewModel.uiState.value.capturedPhoto != null
+      }
+    } finally {
+      streamViewModel.stopStream()
     }
   }
 
   @Test
   fun mockCameraTeardownIsIdempotent() {
     val streamViewModel = startMockCameraStream()
+    try {
+      waitFor("first mock camera frame", CAMERA_TIMEOUT_MS) {
+        streamViewModel.uiState.value.videoFrame != null
+      }
+      streamViewModel.stopStream()
+      streamViewModel.stopStream()
 
-    waitFor("first mock camera frame", CAMERA_TIMEOUT_MS) {
-      streamViewModel.uiState.value.videoFrame != null
+      waitFor("idempotent stream stop", UI_TIMEOUT_MS) {
+        streamViewModel.uiState.value.streamSessionState == StreamState.STOPPED
+      }
+      assertEquals(StreamState.STOPPED, streamViewModel.uiState.value.streamSessionState)
+    } finally {
+      streamViewModel.stopStream()
     }
-    streamViewModel.stopStream()
-    streamViewModel.stopStream()
-
-    waitFor("idempotent stream stop", UI_TIMEOUT_MS) {
-      streamViewModel.uiState.value.streamSessionState == StreamState.STOPPED
-    }
-    assertEquals(StreamState.STOPPED, streamViewModel.uiState.value.streamSessionState)
   }
 
   @Test
@@ -194,6 +195,24 @@ class InstrumentationTest {
             isCompressed = false,
             isCodecConfig = false,
             bufferRemaining = 23,
+        )
+    )
+    assertFalse(
+        isVerifiedContiguousRawI420(
+            width = 3,
+            height = 4,
+            isCompressed = false,
+            isCodecConfig = false,
+            bufferRemaining = 18,
+        )
+    )
+    assertFalse(
+        isVerifiedContiguousRawI420(
+            width = Int.MAX_VALUE,
+            height = Int.MAX_VALUE,
+            isCompressed = false,
+            isCodecConfig = false,
+            bufferRemaining = Int.MAX_VALUE,
         )
     )
   }

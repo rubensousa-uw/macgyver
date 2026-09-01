@@ -48,6 +48,7 @@ import io.livekit.android.room.track.video.CameraCapturerUtils
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,10 +56,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import livekit.org.webrtc.CameraXHelper
 import livekit.org.webrtc.VideoFrame
 import livekit.org.webrtc.VideoSink
@@ -179,6 +182,7 @@ class LiveKitSessionViewModel(
         private const val TRANSCRIPTION_FINAL_ATTRIBUTE = "lk.transcription_final"
         private const val TRANSCRIPTION_SEGMENT_ATTRIBUTE = "lk.segment_id"
         private const val CAPTION_LINGER_MS = 4000L
+        private const val SESSION_START_TIMEOUT_MS = 15_000L
     }
 
     private val _uiState = MutableStateFlow(LiveKitUiState())
@@ -205,11 +209,14 @@ class LiveKitSessionViewModel(
         WearablesInit.ensure(getApplication())
         AutoDeviceSelector()
     }
-    private var glassesSession: DeviceSession? = null
-    private var glassesCamera: Camera? = null
-    private var glassesStream: Stream? = null
+    @Volatile private var glassesSession: DeviceSession? = null
+    @Volatile private var glassesCamera: Camera? = null
+    @Volatile private var glassesStream: Stream? = null
     private val glassesFeedJobs = mutableListOf<Job>()
     private var foregroundServiceStarted = false
+    private val glassesLifecycleLock = Any()
+    @Volatile private var glassesFeedGeneration = 0L
+    @Volatile private var glassesFeedStarting = false
 
     // Wi-Fi Direct link negotiation between phone and glasses is flaky in
     // dense RF; when it fails the stream starves on BLE and dies. Rather than
@@ -532,7 +539,7 @@ class LiveKitSessionViewModel(
                         name = "glasses",
                         capturer = capturer,
                     )
-                    glassesCapturer = capturer
+                    synchronized(glassesLifecycleLock) { glassesCapturer = capturer }
                     glassesTrack.startCapture()
                     room.localParticipant.publishVideoTrack(glassesTrack)
                     glassesTrack
@@ -599,7 +606,7 @@ class LiveKitSessionViewModel(
             disconnectInternal()
             stopPreview()
             stopGlassesFeed()
-            glassesCapturer = null
+            synchronized(glassesLifecycleLock) { glassesCapturer = null }
             _uiState.update { LiveKitUiState() }
         }
     }
@@ -618,7 +625,7 @@ class LiveKitSessionViewModel(
                 room.localParticipant.createVideoTrack(
                     name = "glasses_preview",
                     capturer = capturer,
-                ).also { glassesCapturer = capturer }
+                ).also { synchronized(glassesLifecycleLock) { glassesCapturer = capturer } }
             } else {
                 room.localParticipant.createVideoTrack(
                     options = LocalVideoTrackOptions(position = CameraPosition.BACK),
@@ -654,66 +661,221 @@ class LiveKitSessionViewModel(
      * locks, matching the old DAT streaming path.
      */
     private fun ensureGlassesFeed() {
-        if (glassesSession != null) return
+        if (glassesSession != null || glassesFeedStarting) return
         WearablesInit.ensure(getApplication())
+        val generation = synchronized(glassesLifecycleLock) {
+            if (glassesSession != null || glassesFeedStarting) return
+            glassesFeedGeneration += 1L
+            glassesFeedStarting = true
+            glassesFeedGeneration
+        }
         Wearables.createSession(glassesSelector)
             .onSuccess { session ->
-                glassesSession = session
-                session.start()
-                glassesFeedJobs += viewModelScope.launch {
-                    val sessionState =
-                        session.state.first {
-                            it == DeviceSessionState.STARTED || it == DeviceSessionState.STOPPED
+                val claimed = synchronized(glassesLifecycleLock) {
+                    if (!isCurrentGlassesGeneration(generation)) {
+                        false
+                    } else {
+                        glassesFeedStarting = false
+                        glassesSession = session
+                        true
+                    }
+                }
+                if (!claimed) {
+                    closeGlassesDatResources(camera = null, session = session)
+                    return@onSuccess
+                }
+                try {
+                    session.start()
+                } catch (error: Exception) {
+                    Log.w(TAG, "DAT glasses session failed to start", error)
+                    if (isCurrentGlassesGeneration(generation, session)) {
+                        stopGlassesFeed()
+                    } else {
+                        closeGlassesDatResources(camera = null, session = session)
+                    }
+                    return@onSuccess
+                }
+                val sessionStateJob = viewModelScope.launch {
+                    session.state
+                        .catch { error ->
+                            if (isCurrentGlassesGeneration(generation, session)) {
+                                Log.w(TAG, "DAT glasses session state failed", error)
+                                stopGlassesFeed()
+                            }
                         }
-                    if (glassesSession !== session) return@launch
+                        .collect { state ->
+                            if (!isCurrentGlassesGeneration(generation, session)) return@collect
+                            if (state == DeviceSessionState.STOPPED) {
+                                stopGlassesFeed()
+                            }
+                        }
+                }
+                synchronized(glassesLifecycleLock) {
+                    if (isCurrentGlassesGeneration(generation, session)) {
+                        glassesFeedJobs += sessionStateJob
+                    } else {
+                        sessionStateJob.cancel()
+                    }
+                }
+                val setupJob = viewModelScope.launch {
+                    val sessionState =
+                        try {
+                            withTimeoutOrNull(SESSION_START_TIMEOUT_MS) {
+                                session.state.first {
+                                    it == DeviceSessionState.STARTED || it == DeviceSessionState.STOPPED
+                                }
+                            }
+                        } catch (error: kotlinx.coroutines.CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            if (isCurrentGlassesGeneration(generation, session)) {
+                                Log.w(TAG, "DAT glasses session state observation failed", error)
+                                stopGlassesFeed()
+                            }
+                            return@launch
+                        }
+                    if (!isCurrentGlassesGeneration(generation, session)) return@launch
                     if (sessionState != DeviceSessionState.STARTED) {
-                        Log.w(TAG, "DAT session stopped before glasses camera setup")
+                        Log.w(TAG, "DAT session did not reach STARTED before camera setup")
                         stopGlassesFeed()
                         return@launch
                     }
                     session.addCamera(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24, compressVideo = false))
                         .onSuccess { camera ->
-                            glassesCamera = camera
                             val stream = camera.stream
-                            glassesStream = stream
-                            glassesFeedJobs += viewModelScope.launch(Dispatchers.Default) {
+                            val claimed = synchronized(glassesLifecycleLock) {
+                                if (!isCurrentGlassesGeneration(generation, session)) {
+                                    false
+                                } else {
+                                    glassesCamera = camera
+                                    glassesStream = stream
+                                    true
+                                }
+                            }
+                            if (!claimed) {
+                                closeGlassesDatResources(camera = camera, session = session)
+                                return@onSuccess
+                            }
+                            val hasUsableFrame = AtomicBoolean(false)
+                            val videoJob = viewModelScope.launch(Dispatchers.Default) {
                                 var frames = 0L
-                                stream.videoStream.collect { frame ->
-                                    if (
-                                        !isVerifiedContiguousRawI420(
-                                            width = frame.width,
-                                            height = frame.height,
-                                            isCompressed = frame.isCompressed,
-                                            isCodecConfig = frame.isCodecConfig,
-                                            bufferRemaining = frame.buffer.remaining(),
-                                        )
-                                    ) return@collect
-                                    if (frames == 0L || frames % 100 == 0L) Log.i(TAG, "glasses raw frame #$frames ${frame.width}x${frame.height}")
-                                    frames++
-                                    glassesCapturer?.pushI420(frame.buffer, frame.width, frame.height)
+                                stream.videoStream
+                                    .catch { error ->
+                                        if (isCurrentGlassesGeneration(generation, session)) {
+                                            Log.w(TAG, "DAT glasses video stream failed", error)
+                                            stopGlassesFeed()
+                                        }
+                                    }
+                                    .collect { frame ->
+                                        if (!isCurrentGlassesGeneration(generation, session)) return@collect
+                                        if (
+                                            !isVerifiedContiguousRawI420(
+                                                width = frame.width,
+                                                height = frame.height,
+                                                isCompressed = frame.isCompressed,
+                                                isCodecConfig = frame.isCodecConfig,
+                                                bufferRemaining = frame.buffer.remaining(),
+                                            )
+                                        ) return@collect
+                                        if (hasUsableFrame.compareAndSet(false, true)) {
+                                            _uiState.update {
+                                                if (isCurrentGlassesGeneration(generation, session)) {
+                                                    it.copy(glassesStreaming = true)
+                                                } else {
+                                                    it
+                                                }
+                                            }
+                                        }
+                                        if (frames == 0L || frames % 100 == 0L) Log.i(TAG, "glasses raw frame #$frames ${frame.width}x${frame.height}")
+                                        frames++
+                                        synchronized(glassesLifecycleLock) {
+                                            if (!isCurrentGlassesGeneration(generation, session)) return@collect
+                                            glassesCapturer?.pushI420(frame.buffer, frame.width, frame.height)
+                                        }
+                                    }
+                            }
+                            synchronized(glassesLifecycleLock) {
+                                if (isCurrentGlassesGeneration(generation, session)) {
+                                    glassesFeedJobs += videoJob
+                                } else {
+                                    videoJob.cancel()
                                 }
                             }
-                            glassesFeedJobs += viewModelScope.launch {
-                                stream.state.collect { state ->
-                                    _uiState.update { it.copy(glassesStreaming = state == StreamState.STREAMING) }
-                                    if (state == StreamState.STREAMING) {
-                                        startForegroundService()
-                                        glassesRetryCount = 0; glassesRetryJob?.cancel(); glassesRetryJob = null
-                                    } else if (state == StreamState.STOPPED || state == StreamState.CLOSED) scheduleGlassesRetry()
+                            val stateJob = viewModelScope.launch {
+                                var streamWasStarted = false
+                                stream.state
+                                    .catch { error ->
+                                        if (isCurrentGlassesGeneration(generation, session)) {
+                                            Log.w(TAG, "DAT glasses stream state failed", error)
+                                            stopGlassesFeed()
+                                        }
+                                    }
+                                    .collect { state ->
+                                        if (!isCurrentGlassesGeneration(generation, session)) return@collect
+                                        if (
+                                            state == StreamState.STARTING ||
+                                                state == StreamState.STARTED ||
+                                                state == StreamState.STREAMING ||
+                                                state == StreamState.PAUSED
+                                        ) {
+                                            streamWasStarted = true
+                                        }
+                                        _uiState.update {
+                                            it.copy(
+                                                glassesStreaming =
+                                                    state == StreamState.STREAMING && hasUsableFrame.get(),
+                                            )
+                                        }
+                                        if (state == StreamState.STREAMING) {
+                                            startForegroundService()
+                                            glassesRetryCount = 0; glassesRetryJob?.cancel(); glassesRetryJob = null
+                                        } else if (
+                                            streamWasStarted &&
+                                                (state == StreamState.STOPPED || state == StreamState.CLOSED)
+                                        ) {
+                                            scheduleGlassesRetry()
+                                        }
+                                    }
+                            }
+                            synchronized(glassesLifecycleLock) {
+                                if (isCurrentGlassesGeneration(generation, session)) {
+                                    glassesFeedJobs += stateJob
+                                } else {
+                                    stateJob.cancel()
                                 }
                             }
-                            stream.start().onFailure { error, _ ->
-                                Log.w(TAG, "DAT glasses stream failed to start: $error")
-                                stopGlassesFeed()
+                            var staleBeforeStart = false
+                            synchronized(glassesLifecycleLock) {
+                                if (!isCurrentGlassesGeneration(generation, session)) {
+                                    staleBeforeStart = true
+                                } else {
+                                    stream.start().onFailure { error, _ ->
+                                        if (!isCurrentGlassesGeneration(generation, session)) return@onFailure
+                                        Log.w(TAG, "DAT glasses stream failed to start: $error")
+                                        stopGlassesFeed()
+                                    }
+                                }
+                            }
+                            if (staleBeforeStart) {
+                                closeGlassesDatResources(camera = camera, session = session)
                             }
                         }
                         .onFailure { error, _ ->
+                            if (!isCurrentGlassesGeneration(generation, session)) return@onFailure
                             Log.w(TAG, "DAT glasses camera setup failed: $error")
                             stopGlassesFeed()
                         }
                 }
+                synchronized(glassesLifecycleLock) {
+                    if (isCurrentGlassesGeneration(generation, session)) {
+                        glassesFeedJobs += setupJob
+                    } else {
+                        setupJob.cancel()
+                    }
+                }
             }
             .onFailure { error, _ ->
+                if (!isCurrentGlassesGeneration(generation)) return@onFailure
                 Log.w(TAG, "DAT glasses session creation failed: $error")
                 stopGlassesFeed()
             }
@@ -726,6 +888,8 @@ class LiveKitSessionViewModel(
             if (glassesSession == null || uiState.value.glassesStreaming) return@launch
             if (glassesRetryCount >= glassesMaxRetries) {
                 Log.w(TAG, "glasses feed stalled; retry budget exhausted")
+                glassesRetryJob = null
+                stopGlassesFeed()
                 return@launch
             }
             glassesRetryCount++
@@ -739,22 +903,23 @@ class LiveKitSessionViewModel(
     }
 
     private fun stopGlassesFeed() {
+        val cleanup = synchronized(glassesLifecycleLock) {
+            glassesFeedGeneration += 1L
+            glassesFeedStarting = false
+            val handles = glassesCamera to glassesSession
+            val jobs = glassesFeedJobs.toList()
+            glassesFeedJobs.clear()
+            glassesStream = null
+            glassesCamera = null
+            glassesSession = null
+            handles to jobs
+        }
         glassesRetryJob?.cancel()
         glassesRetryJob = null
-        glassesFeedJobs.forEach { it.cancel() }
-        glassesFeedJobs.clear()
-        val activeCamera = glassesCamera
-        val activeSession = glassesSession
-        glassesStream = null
-        glassesCamera = null
-        glassesSession = null
-        try {
-            activeCamera?.stop()
-            activeSession?.removeCamera()
-            activeSession?.stop()
-        } catch (e: Exception) {
-            Log.w(TAG, "glasses session close failed: ${e.message}")
-        }
+        cleanup.second.forEach { it.cancel() }
+        val activeCamera = cleanup.first.first
+        val activeSession = cleanup.first.second
+        closeGlassesDatResources(camera = activeCamera, session = activeSession)
         if (foregroundServiceStarted) {
             StreamingService.stop(getApplication())
             foregroundServiceStarted = false
@@ -762,10 +927,46 @@ class LiveKitSessionViewModel(
         _uiState.update { it.copy(glassesStreaming = false) }
     }
 
+    private fun isCurrentGlassesGeneration(
+        generation: Long,
+        session: DeviceSession? = null,
+    ): Boolean {
+        return glassesFeedGeneration == generation &&
+            (session == null || glassesSession === session)
+    }
+
+    /** Keep DAT teardown ordered even when one SDK operation reports a failure. */
+    private fun closeGlassesDatResources(camera: Camera?, session: DeviceSession?) {
+        camera?.let {
+            try {
+                it.stop()
+            } catch (error: Exception) {
+                Log.w(TAG, "DAT glasses camera stop failed: ${error.message}")
+            }
+        }
+        if (camera != null && session != null) {
+            try {
+                session.removeCamera()
+            } catch (error: Exception) {
+                Log.w(TAG, "DAT glasses camera detach failed: ${error.message}")
+            }
+        }
+        session?.let {
+            try {
+                it.stop()
+            } catch (error: Exception) {
+                Log.w(TAG, "DAT glasses session stop failed: ${error.message}")
+            }
+        }
+    }
+
     private fun startForegroundService() {
-        if (!foregroundServiceStarted) {
-            foregroundServiceStarted = true
+        if (foregroundServiceStarted) return
+        try {
             StreamingService.start(getApplication())
+            foregroundServiceStarted = true
+        } catch (error: Exception) {
+            Log.w(TAG, "Failed to start streaming foreground service", error)
         }
     }
 

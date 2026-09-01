@@ -1,6 +1,7 @@
 package io.github.rubensousa.macgyver.livekit
 
 import android.content.Context
+import io.github.rubensousa.macgyver.stream.isVerifiedContiguousRawI420
 import java.nio.ByteBuffer
 import livekit.org.webrtc.CapturerObserver
 import livekit.org.webrtc.JavaI420Buffer
@@ -53,11 +54,18 @@ class GlassesVideoCapturer : VideoCapturer {
     fun pushI420(src: ByteBuffer, width: Int, height: Int) {
         val observer = observer ?: return
         if (!capturing) return
-        if (width <= 0 || height <= 0 || width % 2 != 0 || height % 2 != 0) return
-        val ySize = width * height
+        if (
+            !isVerifiedContiguousRawI420(
+                width = width,
+                height = height,
+                isCompressed = false,
+                isCodecConfig = false,
+                bufferRemaining = src.remaining(),
+            )
+        ) return
+        val ySize = (width.toLong() * height.toLong()).toInt()
         val chromaSize = ySize / 4
         val base = src.position()
-        if (src.remaining() < ySize + 2 * chromaSize) return
 
         val i420 = JavaI420Buffer.allocate(width, height)
         val dup = src.duplicate()
