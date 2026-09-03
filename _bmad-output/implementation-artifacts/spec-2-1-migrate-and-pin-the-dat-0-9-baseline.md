@@ -137,3 +137,16 @@ DAT 0.9 consolidates camera ownership: `DeviceSession.addStream` was removed in 
 - [x] [Review][Defer] Photo results from retired generations have no test coverage [StreamViewModel.kt:397] — deferred, pre-existing
 - [x] [Review][Defer] Session timeout, setup failure, and foreground-service failure paths lack focused tests [StreamViewModel.kt:170; LiveKitSessionViewModel.kt:720] — deferred, pre-existing
 - [x] [Review][Defer] Practical frame-size limits need hardware-tuned validation before tightening the raw gate [StreamViewModel.kt:84] — deferred, pre-existing
+
+### Review Findings (Follow-up 2026-09-03)
+
+- [ ] [Review][Patch] Keep LiveKit recovery armed until the first usable frame and add a no-frame watchdog [LiveKitSessionViewModel.kt:893]
+- [ ] [Review][Patch] Enable MockDeviceKit before pairing from the developer screen [MockDeviceKitViewModel.kt:43]
+- [ ] [Review][Patch] Make Wearables monitoring initialization retry-safe if selector construction fails [WearablesViewModel.kt:61]
+- [ ] [Review][Patch] Rate-limit repeated invalid-frame warnings [StreamViewModel.kt:587]
+- [ ] [Review][Patch] Replace method-name-driven instrumentation setup with explicit fixtures and restore preferences even when MockDeviceKit cleanup fails [InstrumentationTest.kt:72]
+- [ ] [Review][Patch] Mark the completed Mac instrumentation handoff as historical and remove stale pending/uncommitted instructions [android-instrumentation-mac.md:7]
+- [ ] [Review][Patch] Align the migration record's teardown order with the implemented collector-first cleanup [dat-migration.md:16]
+- [x] [Review][Defer] Fence the pre-existing phone-camera callbacks and repeated starts against late delivery and overwritten managers [StreamViewModel.kt:365] — deferred, pre-existing
+- [x] [Review][Defer] Recover the pre-existing Wearables monitoring collectors after SDK flow failures [WearablesViewModel.kt:68] — deferred, pre-existing
+- [x] [Review][Defer] Renew or reacquire the pre-existing ten-minute foreground-service wake lock for longer sessions [StreamingService.kt:142] — deferred, pre-existing

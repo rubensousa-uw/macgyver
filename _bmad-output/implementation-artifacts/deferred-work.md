@@ -44,3 +44,15 @@
 - source_spec: `/Users/rubensousa/Documents/Projects/macgyver/_bmad-output/implementation-artifacts/spec-2-1-migrate-and-pin-the-dat-0-9-baseline.md`
   summary: Revisit moving MockDeviceKit-dependent main sources to a test/debug source set and making `mwdat-mockdevice` test-only.
   evidence: The current app keeps the dependency in `implementation` because `MockDeviceKitViewModel` and `WearablesViewModel` use it from main sources; the scoped exception is intentional for this story.
+
+## Deferred review: code review of spec-2-1-migrate-and-pin-the-dat-0-9-baseline (2026-09-03 follow-up)
+
+- source_spec: `/Users/rubensousa/Documents/Projects/macgyver/_bmad-output/implementation-artifacts/spec-2-1-migrate-and-pin-the-dat-0-9-baseline.md`
+  summary: Fence the pre-existing phone-camera callbacks and repeated starts against late delivery and overwritten managers.
+  evidence: `startPhoneCamera` replaces `phoneCameraManager` without stopping a prior manager, and its callback can update UI or WebRTC after `stopStream`; the migration changed only the DAT path and stream-state type here.
+- source_spec: `/Users/rubensousa/Documents/Projects/macgyver/_bmad-output/implementation-artifacts/spec-2-1-migrate-and-pin-the-dat-0-9-baseline.md`
+  summary: Recover the pre-existing Wearables monitoring collectors after SDK flow failures.
+  evidence: The active-device, registration, device-list, and device-metadata collectors have no retry or gate reset when an SDK flow terminates exceptionally; this behavior predates the focused DAT lifecycle migration.
+- source_spec: `/Users/rubensousa/Documents/Projects/macgyver/_bmad-output/implementation-artifacts/spec-2-1-migrate-and-pin-the-dat-0-9-baseline.md`
+  summary: Renew or reacquire the pre-existing ten-minute foreground-service wake lock for longer sessions.
+  evidence: The wake lock expires after ten minutes while the retained non-null handle prevents `acquireWakeLock` from acquiring a replacement; the migration only moved acquisition earlier in service startup.
