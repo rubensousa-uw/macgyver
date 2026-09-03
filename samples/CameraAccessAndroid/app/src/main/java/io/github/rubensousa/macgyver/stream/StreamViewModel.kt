@@ -138,7 +138,15 @@ class StreamViewModel(
     val generation = synchronized(lifecycleLock) { lifecycleGeneration }
 
     _uiState.update { it.copy(streamingMode = StreamingMode.GLASSES) }
-    Wearables.createSession(deviceSelector)
+    val sessionResult =
+        try {
+          Wearables.createSession(deviceSelector)
+        } catch (error: Exception) {
+          Log.e(TAG, "Failed to create DAT session: ${error::class.simpleName}")
+          stopStream(generation)
+          return
+        }
+    sessionResult
         .onSuccess { created ->
           val claimed =
               synchronized(lifecycleLock) {

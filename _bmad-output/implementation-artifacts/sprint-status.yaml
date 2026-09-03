@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-28-2026 00:21
-last_updated: 09-02-2026 00:06
+last_updated: 09-03-2026 22:00
 project: macgyver
 project_key: NOKEY
 tracking_system: file-system
@@ -42,7 +42,7 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-migrate-and-pin-the-dat-0-9-baseline: in-progress
+  2-1-migrate-and-pin-the-dat-0-9-baseline: review
   2-2-register-and-select-meta-adventurer: backlog
   2-3-operate-the-canonical-wearable-camera-lifecycle: backlog
   2-4-display-the-first-usable-adventurer-frame: backlog

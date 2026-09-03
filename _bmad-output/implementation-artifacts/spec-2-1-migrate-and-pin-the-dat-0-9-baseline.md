@@ -2,7 +2,7 @@
 title: 'Migrate and Pin the DAT 0.9 Baseline'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_commit: '4706c6aaae9d7f0daeb5bb9740656c2b74946b3e'
 context:

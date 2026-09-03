@@ -680,7 +680,15 @@ class LiveKitSessionViewModel(
             glassesFeedStarting = true
             glassesFeedGeneration
         }
-        Wearables.createSession(glassesSelector)
+        val sessionResult =
+            try {
+                Wearables.createSession(glassesSelector)
+            } catch (error: Exception) {
+                Log.w(TAG, "DAT glasses session creation threw: ${error::class.simpleName}")
+                stopGlassesFeed(generation)
+                return
+            }
+        sessionResult
             .onSuccess { session ->
                 val claimed = synchronized(glassesLifecycleLock) {
                     if (!isCurrentGlassesGeneration(generation)) {
