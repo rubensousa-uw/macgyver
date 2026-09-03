@@ -827,6 +827,13 @@ class LiveKitSessionViewModel(
                                                 )
                                             ) return@collect
                                             if (hasUsableFrame.compareAndSet(false, true)) {
+                                                synchronized(glassesLifecycleLock) {
+                                                    if (isCurrentGlassesGeneration(generation, session)) {
+                                                        glassesRetryCount = 0
+                                                        glassesRetryJob?.cancel()
+                                                        glassesRetryJob = null
+                                                    }
+                                                }
                                                 _uiState.update {
                                                     if (isCurrentGlassesGeneration(generation, session)) {
                                                         it.copy(glassesStreaming = true)
@@ -892,12 +899,12 @@ class LiveKitSessionViewModel(
                                             }
                                             if (state == StreamState.STREAMING) {
                                                 startForegroundService(generation, session)
-                                                synchronized(glassesLifecycleLock) {
-                                                    if (isCurrentGlassesGeneration(generation, session)) {
-                                                        glassesRetryCount = 0
-                                                        glassesRetryJob?.cancel()
-                                                        glassesRetryJob = null
-                                                    }
+                                                if (!hasUsableFrame.get()) {
+                                                    scheduleGlassesRetry(
+                                                        generation = generation,
+                                                        session = session,
+                                                        recoverySatisfied = hasUsableFrame::get,
+                                                    )
                                                 }
                                             } else if (
                                                 streamWasStarted &&
@@ -915,16 +922,22 @@ class LiveKitSessionViewModel(
                                     }
                                 }
                                 var startError: Exception? = null
+                                var streamStartAccepted = false
                                 val startedForGeneration = synchronized(glassesDatOperationLock) {
                                     if (!isCurrentGlassesGeneration(generation, session)) {
                                         false
                                     } else {
                                         try {
-                                            stream.start().onFailure { error, _ ->
-                                                if (!isCurrentGlassesGeneration(generation, session)) return@onFailure
-                                                Log.w(TAG, "DAT glasses stream failed to start: $error")
-                                                stopGlassesFeed(generation)
-                                            }
+                                            stream
+                                                .start()
+                                                .onSuccess { streamStartAccepted = true }
+                                                .onFailure { error, _ ->
+                                                    if (!isCurrentGlassesGeneration(generation, session)) {
+                                                        return@onFailure
+                                                    }
+                                                    Log.w(TAG, "DAT glasses stream failed to start: $error")
+                                                    stopGlassesFeed(generation)
+                                                }
                                         } catch (error: Exception) {
                                             startError = error
                                         }
@@ -935,6 +948,14 @@ class LiveKitSessionViewModel(
                                 startError?.let {
                                     Log.w(TAG, "DAT glasses stream failed to start", it)
                                     stopGlassesFeed(generation)
+                                    return@onSuccess
+                                }
+                                if (streamStartAccepted && !hasUsableFrame.get()) {
+                                    scheduleGlassesRetry(
+                                        generation = generation,
+                                        session = session,
+                                        recoverySatisfied = hasUsableFrame::get,
+                                    )
                                 }
                             }
                             .onFailure { error, _ ->
@@ -965,7 +986,11 @@ class LiveKitSessionViewModel(
             }
     }
 
-    private fun scheduleGlassesRetry(generation: Long, session: DeviceSession) {
+    private fun scheduleGlassesRetry(
+        generation: Long,
+        session: DeviceSession,
+        recoverySatisfied: () -> Boolean = { uiState.value.glassesStreaming },
+    ) {
         synchronized(glassesLifecycleLock) {
             if (!isCurrentGlassesGeneration(generation, session) || glassesRetryJob?.isActive == true) {
                 return
@@ -973,7 +998,7 @@ class LiveKitSessionViewModel(
             glassesRetryJob = viewModelScope.launch {
                 delay(glassesStallMs)
                 val shouldContinue = synchronized(glassesLifecycleLock) {
-                    if (!isCurrentGlassesGeneration(generation, session) || uiState.value.glassesStreaming) {
+                    if (!isCurrentGlassesGeneration(generation, session) || recoverySatisfied()) {
                         if (isCurrentGlassesGeneration(generation, session)) glassesRetryJob = null
                         false
                     } else {
@@ -1029,10 +1054,11 @@ class LiveKitSessionViewModel(
     private fun stopGlassesFeed(expectedGeneration: Long? = null): Boolean {
         val cleanup = synchronized(glassesFrameDeliveryLock) {
             synchronized(glassesLifecycleLock) {
-                if (expectedGeneration != null && glassesFeedGeneration != expectedGeneration) {
-                    null
-                } else {
-                    glassesFeedGeneration += 1L
+                    if (expectedGeneration != null && glassesFeedGeneration != expectedGeneration) {
+                        null
+                    } else {
+                        if (expectedGeneration == null) glassesRetryCount = 0
+                        glassesFeedGeneration += 1L
                     val cleanup =
                         GlassesCleanup(
                             camera = glassesCamera,

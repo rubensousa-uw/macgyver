@@ -10,6 +10,7 @@ package io.github.rubensousa.macgyver
 
 import android.Manifest
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.Uri
 import android.util.Log
 import androidx.compose.ui.test.ComposeTimeoutException
@@ -39,6 +40,13 @@ import org.junit.rules.TestRule
 import org.junit.runner.Description
 import org.junit.runner.RunWith
 import org.junit.runners.model.Statement
+
+@Target(AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.RUNTIME)
+private annotation class InstrumentationFixture(
+    val enableMockDeviceKit: Boolean = false,
+    val supplyGatewayCredentials: Boolean = false,
+)
 
 /**
  * DAT 0.9 integration checks. MockDeviceKit and runtime permissions must be ready before
@@ -73,7 +81,12 @@ class InstrumentationTest {
       TestRule { base: Statement, description: Description ->
         object : Statement() {
           override fun evaluate() {
+            val fixture =
+                requireNotNull(description.getAnnotation(InstrumentationFixture::class.java)) {
+                  "${description.methodName} must declare an InstrumentationFixture"
+                }
             val preferences = targetContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val originalPreferences = preferences.all.toMap()
             // MainActivity reads this preference during onCreate. Set it and enable the mock
             // before the compose rule creates the activity, not in @Before.
             preferences
@@ -83,24 +96,50 @@ class InstrumentationTest {
             // Only the UI-route test needs to pass the local access-code gate. Camera tests
             // deliberately stay behind it so MainActivity cannot auto-start a LiveKit call
             // alongside the StreamViewModel lifecycle being verified.
-            if (description.methodName == "showsGlassesHomeWhenNoMockDeviceIsPaired") {
+            if (fixture.supplyGatewayCredentials) {
               preferences
                   .edit()
                   .putString(GATEWAY_BASE_URL_KEY, TEST_GATEWAY_BASE_URL)
                   .putString(GATEWAY_TOKEN_KEY, TEST_GATEWAY_TOKEN)
                   .commit()
             }
-            val needsMock = description.methodName != "showsGlassesHomeWhenNoMockDeviceIsPaired"
             try {
-              if (needsMock) mockDeviceKit.enable()
+              if (fixture.enableMockDeviceKit) mockDeviceKit.enable()
               base.evaluate()
             } finally {
-              if (needsMock) mockDeviceKit.disable()
-              preferences.edit().clear().commit()
+              try {
+                if (fixture.enableMockDeviceKit) mockDeviceKit.disable()
+              } finally {
+                restorePreferences(preferences, originalPreferences)
+              }
             }
           }
         }
       }
+
+  private fun restorePreferences(
+      preferences: SharedPreferences,
+      originalValues: Map<String, *>,
+  ) {
+    val editor = preferences.edit().clear()
+    originalValues.forEach { (key, value) ->
+      when (value) {
+        is Boolean -> editor.putBoolean(key, value)
+        is Float -> editor.putFloat(key, value)
+        is Int -> editor.putInt(key, value)
+        is Long -> editor.putLong(key, value)
+        is String -> editor.putString(key, value)
+        is Set<*> -> {
+          val strings = value.filterIsInstance<String>().toSet()
+          check(strings.size == value.size) { "Unsupported preference set for $key" }
+          editor.putStringSet(key, strings)
+        }
+        null -> editor.remove(key)
+        else -> error("Unsupported preference type for $key: ${value::class.java.name}")
+      }
+    }
+    check(editor.commit()) { "Failed to restore instrumentation preferences" }
+  }
 
   private val permissionsRule =
       GrantPermissionRule.grant(
@@ -115,6 +154,7 @@ class InstrumentationTest {
       // outer rules first, so reversing these two rules is a functional requirement.
       RuleChain.outerRule(permissionsRule).around(mockAndSettingsRule).around(composeTestRule)
 
+  @InstrumentationFixture(supplyGatewayCredentials = true)
   @Test
   fun showsGlassesHomeWhenNoMockDeviceIsPaired() {
     val homeTip = targetContext.getString(R.string.home_tip_video)
@@ -122,6 +162,7 @@ class InstrumentationTest {
     composeTestRule.waitUntilExactlyOneExists(hasText(homeTip), timeoutMillis = UI_TIMEOUT_MS)
   }
 
+  @InstrumentationFixture(enableMockDeviceKit = true)
   @Test
   fun mockDeviceDeliversFirstFrameAndCapturesPhoto() {
     val streamViewModel = startMockCameraStream()
@@ -140,6 +181,7 @@ class InstrumentationTest {
     }
   }
 
+  @InstrumentationFixture(enableMockDeviceKit = true)
   @Test
   fun mockCameraTeardownIsIdempotent() {
     val streamViewModel = startMockCameraStream()
@@ -159,6 +201,7 @@ class InstrumentationTest {
     }
   }
 
+  @InstrumentationFixture
   @Test
   fun rawI420GateRejectsCompressedCodecConfigurationAndMalformedFrames() {
     assertTrue(

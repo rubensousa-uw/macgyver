@@ -1,5 +1,5 @@
 <!-- bmad:context -->
-<!-- Verified 2026-08-29 against 1ce978de6a5a5254340331b46ba7fc06e7e59925. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
+<!-- Verified 2026-09-03 against a3d6076bc4f19f99129fc98a2ae2d2861f22acb1. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
 ## macgyver
 
@@ -19,7 +19,7 @@ Android and iOS wearable-assistant project derived from VisionClaw and using Met
 
 ## Running and verifying
 
-- Run any memory-intensive Gradle command only through `/home/hermes/.local/bin/codex-memory-run`, with one worker; set `JAVA_HOME=/tmp/maria-toolchains/jdk-17` and keep `hindsight.service` running.
+- On this macOS host, run Android Gradle from `samples/CameraAccessAndroid` with `JAVA_HOME=/usr/local/opt/openjdk@17`, `ANDROID_HOME=/Users/rubensousa/Library/Android/sdk`, `--no-daemon --no-parallel --max-workers=1`, a bounded `-Dorg.gradle.jvmargs="-Xmx2g -Dfile.encoding=UTF-8"`, and `-Pkotlin.compiler.execution.strategy=in-process`. Before connected tests, boot `macgyver_api35_x86_64` and confirm `adb devices -l` reports it as `device`.
 
 ## Conventions that differ from defaults
 

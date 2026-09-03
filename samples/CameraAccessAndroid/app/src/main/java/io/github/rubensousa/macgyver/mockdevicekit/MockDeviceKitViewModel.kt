@@ -44,6 +44,9 @@ class MockDeviceKitViewModel(application: Application) : AndroidViewModel(applic
     viewModelScope.launch {
       try {
         Log.d(TAG, "Pairing RayBan Meta device")
+        if (!mockDeviceKit.isEnabled) {
+          mockDeviceKit.enable()
+        }
         mockDeviceKit.pairGlasses(GlassesModel.RAYBAN_META).fold(
             onSuccess = { mockDevice ->
               val deviceInfo = MockDeviceInfo(mockDevice, UUID.randomUUID().toString(), "RayBan Meta Glasses")

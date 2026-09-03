@@ -63,12 +63,19 @@ class WearablesViewModel(application: Application) : AndroidViewModel(applicatio
       return
     }
     WearablesInit.ensure(getApplication())
+    val initializedDeviceSelector =
+        try {
+          deviceSelector
+        } catch (error: Exception) {
+          Log.w(TAG, "DAT device selector initialization failed; monitoring can be retried", error)
+          return
+        }
     monitoringStarted = true
 
     // Monitor device selector for active device
     deviceSelectorJob =
         viewModelScope.launch {
-          deviceSelector.activeDeviceFlow().collect { device ->
+          initializedDeviceSelector.activeDeviceFlow().collect { device ->
             _uiState.update { it.copy(hasActiveDevice = device != null) }
           }
         }

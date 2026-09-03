@@ -140,13 +140,13 @@ DAT 0.9 consolidates camera ownership: `DeviceSession.addStream` was removed in 
 
 ### Review Findings (Follow-up 2026-09-03)
 
-- [ ] [Review][Patch] Keep LiveKit recovery armed until the first usable frame and add a no-frame watchdog [LiveKitSessionViewModel.kt:893]
-- [ ] [Review][Patch] Enable MockDeviceKit before pairing from the developer screen [MockDeviceKitViewModel.kt:43]
-- [ ] [Review][Patch] Make Wearables monitoring initialization retry-safe if selector construction fails [WearablesViewModel.kt:61]
-- [ ] [Review][Patch] Rate-limit repeated invalid-frame warnings [StreamViewModel.kt:587]
-- [ ] [Review][Patch] Replace method-name-driven instrumentation setup with explicit fixtures and restore preferences even when MockDeviceKit cleanup fails [InstrumentationTest.kt:72]
-- [ ] [Review][Patch] Mark the completed Mac instrumentation handoff as historical and remove stale pending/uncommitted instructions [android-instrumentation-mac.md:7]
-- [ ] [Review][Patch] Align the migration record's teardown order with the implemented collector-first cleanup [dat-migration.md:16]
+- [x] [Review][Patch] Keep LiveKit recovery armed until the first usable frame and add a no-frame watchdog [LiveKitSessionViewModel.kt:893] — resolved by arming the retry timer on `STREAMING` and disarming/resetting only after an admitted frame.
+- [x] [Review][Patch] Enable MockDeviceKit before pairing from the developer screen [MockDeviceKitViewModel.kt:43] — resolved by enabling the kit on demand before `pairGlasses`.
+- [x] [Review][Patch] Make Wearables monitoring initialization retry-safe if selector construction fails [WearablesViewModel.kt:61] — resolved by constructing the selector before committing the started flag.
+- [x] [Review][Patch] Rate-limit repeated invalid-frame warnings [StreamViewModel.kt:587] — resolved with a thread-safe ten-second warning interval.
+- [x] [Review][Patch] Replace method-name-driven instrumentation setup with explicit fixtures and restore preferences even when MockDeviceKit cleanup fails [InstrumentationTest.kt:72] — resolved with runtime fixture annotations and nested cleanup.
+- [x] [Review][Patch] Mark the completed Mac instrumentation handoff as historical and remove stale pending/uncommitted instructions [android-instrumentation-mac.md:7] — resolved by replacing the handoff with the recorded successful procedure and result.
+- [x] [Review][Patch] Align the migration record's teardown order with the implemented collector-first cleanup [dat-migration.md:16] — resolved in the 0.9 code-decision record.
 - [x] [Review][Defer] Fence the pre-existing phone-camera callbacks and repeated starts against late delivery and overwritten managers [StreamViewModel.kt:365] — deferred, pre-existing
 - [x] [Review][Defer] Recover the pre-existing Wearables monitoring collectors after SDK flow failures [WearablesViewModel.kt:68] — deferred, pre-existing
 - [x] [Review][Defer] Renew or reacquire the pre-existing ten-minute foreground-service wake lock for longer sessions [StreamingService.kt:142] — deferred, pre-existing

@@ -16,6 +16,7 @@ import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
@@ -45,6 +46,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,6 +99,7 @@ class StreamViewModel(
   companion object {
     private const val TAG = "StreamViewModel"
     private const val SESSION_START_TIMEOUT_MS = 15_000L
+    private const val INVALID_FRAME_WARNING_INTERVAL_MS = 10_000L
     private val INITIAL_STATE = StreamUiState()
   }
 
@@ -116,6 +119,7 @@ class StreamViewModel(
   private val lifecycleLock = Any()
   private val datOperationLock = Any()
   private val frameDeliveryLock = Any()
+  private val lastInvalidFrameWarningAtMs = AtomicLong(-INVALID_FRAME_WARNING_INTERVAL_MS)
   @Volatile private var lifecycleGeneration = 0L
 
   private data class StreamCleanup(
@@ -595,7 +599,14 @@ class StreamViewModel(
             bufferRemaining = videoFrame.buffer.remaining(),
         )
     ) {
-      Log.w(TAG, "Rejected non-raw camera frame")
+      val nowMs = SystemClock.elapsedRealtime()
+      val previousWarningAtMs = lastInvalidFrameWarningAtMs.get()
+      if (
+          nowMs - previousWarningAtMs >= INVALID_FRAME_WARNING_INTERVAL_MS &&
+              lastInvalidFrameWarningAtMs.compareAndSet(previousWarningAtMs, nowMs)
+      ) {
+        Log.w(TAG, "Rejected non-raw camera frame; suppressing repeats for 10 seconds")
+      }
       return
     }
     // VideoFrame contains raw I420 video data in a ByteBuffer
