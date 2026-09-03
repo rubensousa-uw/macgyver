@@ -52,6 +52,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -100,9 +101,9 @@ class StreamViewModel(
   }
 
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
-  private var deviceSession: DeviceSession? = null
-  private var camera: Camera? = null
-  private var stream: Stream? = null
+  @Volatile private var deviceSession: DeviceSession? = null
+  @Volatile private var camera: Camera? = null
+  @Volatile private var stream: Stream? = null
 
   private val _uiState = MutableStateFlow(INITIAL_STATE)
   val uiState: StateFlow<StreamUiState> = _uiState.asStateFlow()
@@ -113,7 +114,18 @@ class StreamViewModel(
   private var cameraSetupJob: Job? = null
   private var foregroundServiceStarted = false
   private val lifecycleLock = Any()
+  private val datOperationLock = Any()
+  private val frameDeliveryLock = Any()
   @Volatile private var lifecycleGeneration = 0L
+
+  private data class StreamCleanup(
+      val camera: Camera?,
+      val session: DeviceSession?,
+      val phoneCameraManager: PhoneCameraManager?,
+      val foregroundServiceWasStarted: Boolean,
+      val jobs: List<Job>,
+      val generation: Long,
+  )
 
   // macgyver additions
   var webrtcViewModel: WebRTCSessionViewModel? = null
@@ -128,17 +140,6 @@ class StreamViewModel(
     _uiState.update { it.copy(streamingMode = StreamingMode.GLASSES) }
     Wearables.createSession(deviceSelector)
         .onSuccess { created ->
-          try {
-            created.start()
-          } catch (error: Exception) {
-            if (isCurrentGeneration(generation)) {
-              Log.e(TAG, "Failed to start DAT session", error)
-              stopStream()
-            } else {
-              closeDatResources(camera = null, session = created)
-            }
-            return@onSuccess
-          }
           val claimed =
               synchronized(lifecycleLock) {
                 if (!isCurrentGeneration(generation)) {
@@ -150,12 +151,18 @@ class StreamViewModel(
                         .catch { error ->
                           if (isCurrentGeneration(generation, created)) {
                             Log.e(TAG, "DAT session state stream failed", error)
-                            stopStream()
+                            stopStream(generation)
+                          }
+                        }
+                        .onCompletion { cause ->
+                          if (cause == null && isCurrentGeneration(generation, created)) {
+                            Log.w(TAG, "DAT session state stream completed unexpectedly")
+                            stopStream(generation)
                           }
                         }
                         .collect {
                           if (!isCurrentGeneration(generation, created)) return@collect
-                          if (it == DeviceSessionState.STOPPED) stopStream()
+                          if (it == DeviceSessionState.STOPPED) stopStream(generation)
                         }
                   }
                   true
@@ -165,6 +172,27 @@ class StreamViewModel(
             closeDatResources(camera = null, session = created)
             return@onSuccess
           }
+
+          var startError: Exception? = null
+          val startedForGeneration = synchronized(datOperationLock) {
+            if (!isCurrentGeneration(generation, created)) {
+              false
+            } else {
+              try {
+                created.start()
+              } catch (error: Exception) {
+                startError = error
+              }
+              true
+            }
+          }
+          if (!startedForGeneration) return@onSuccess
+          startError?.let {
+            Log.e(TAG, "Failed to start DAT session", it)
+            stopStream(generation)
+            return@onSuccess
+          }
+
           val setupJob =
               viewModelScope.launch {
                 val sessionState =
@@ -179,92 +207,138 @@ class StreamViewModel(
                     } catch (error: Exception) {
                       if (isCurrentGeneration(generation, created)) {
                         Log.e(TAG, "DAT session state observation failed", error)
-                        stopStream()
+                        stopStream(generation)
                       }
                       return@launch
                     }
                 if (!isCurrentGeneration(generation, created)) return@launch
                 if (sessionState != DeviceSessionState.STARTED) {
                   Log.e(TAG, "DAT session did not reach STARTED before camera setup")
-                  stopStream()
+                  stopStream(generation)
                   return@launch
                 }
-                created
-                    .addCamera(
-                        StreamConfiguration(
-                            videoQuality = VideoQuality.MEDIUM,
-                            frameRate = 24,
-                            compressVideo = false,
-                        )
-                    )
-                    .onSuccess { addedCamera ->
-                      var stale = false
-                      synchronized(lifecycleLock) {
-                        if (!isCurrentGeneration(generation, created)) {
-                          stale = true
-                        } else {
-                          camera = addedCamera
-                          stream = addedCamera.stream
-                          videoJob =
-                              viewModelScope.launch(Dispatchers.Default) {
-                                addedCamera.stream.videoStream
-                                    .catch { error ->
-                                      if (isCurrentGeneration(generation, created)) {
-                                        Log.e(TAG, "DAT camera video stream failed", error)
-                                        stopStream()
+                try {
+                  created
+                      .addCamera(
+                          StreamConfiguration(
+                              videoQuality = VideoQuality.MEDIUM,
+                              frameRate = 24,
+                              compressVideo = false,
+                          )
+                      )
+                      .onSuccess { addedCamera ->
+                        val stale = synchronized(lifecycleLock) {
+                          if (!isCurrentGeneration(generation, created)) {
+                            true
+                          } else {
+                            camera = addedCamera
+                            stream = addedCamera.stream
+                            videoJob =
+                                viewModelScope.launch(Dispatchers.Default) {
+                                  addedCamera.stream.videoStream
+                                      .catch { error ->
+                                        if (isCurrentGeneration(generation, created)) {
+                                          Log.e(TAG, "DAT camera video stream failed", error)
+                                          stopStream(generation)
+                                        }
                                       }
-                                    }
-                                    .collect { handleVideoFrame(it, generation) }
-                              }
-                          stateJob =
-                              viewModelScope.launch {
-                                var streamWasStarted = false
-                                addedCamera.stream.state
-                                    .catch { error ->
-                                      if (isCurrentGeneration(generation, created)) {
-                                        Log.e(TAG, "DAT camera state stream failed", error)
-                                        stopStream()
+                                      .onCompletion { cause ->
+                                        if (cause == null &&
+                                            isCurrentGeneration(generation, created)
+                                        ) {
+                                          Log.w(TAG, "DAT camera video stream completed unexpectedly")
+                                          stopStream(generation)
+                                        }
                                       }
-                                    }
-                                    .collect { currentState ->
-                                      if (!isCurrentGeneration(generation, created)) return@collect
-                                      if (
-                                          currentState == StreamState.STARTING ||
-                                              currentState == StreamState.STARTED ||
-                                              currentState == StreamState.STREAMING ||
-                                              currentState == StreamState.PAUSED
-                                      ) {
-                                        streamWasStarted = true
+                                      .collect { handleVideoFrame(it, generation) }
+                                }
+                            stateJob =
+                                viewModelScope.launch {
+                                  var streamWasStarted = false
+                                  addedCamera.stream.state
+                                      .catch { error ->
+                                        if (isCurrentGeneration(generation, created)) {
+                                          Log.e(TAG, "DAT camera state stream failed", error)
+                                          stopStream(generation)
+                                        }
                                       }
-                                      _uiState.update { it.copy(streamSessionState = currentState) }
-                                      if (currentState == StreamState.STREAMING) {
-                                        startForegroundService()
+                                      .onCompletion { cause ->
+                                        if (cause == null &&
+                                            isCurrentGeneration(generation, created)
+                                        ) {
+                                          Log.w(TAG, "DAT camera state stream completed unexpectedly")
+                                          stopStream(generation)
+                                        }
                                       }
-                                      if (
-                                          streamWasStarted &&
-                                              (currentState == StreamState.STOPPED ||
-                                                  currentState == StreamState.CLOSED)
-                                      ) {
-                                        stopStream()
-                                        wearablesViewModel.navigateToDeviceSelection()
+                                      .collect { currentState ->
+                                        if (!isCurrentGeneration(generation, created)) return@collect
+                                        if (
+                                            currentState == StreamState.STARTING ||
+                                                currentState == StreamState.STARTED ||
+                                                currentState == StreamState.STREAMING ||
+                                                currentState == StreamState.PAUSED
+                                        ) {
+                                          streamWasStarted = true
+                                        }
+                                        _uiState.update { it.copy(streamSessionState = currentState) }
+                                        if (currentState == StreamState.STREAMING) {
+                                          startForegroundService(generation, created)
+                                        }
+                                        if (
+                                            streamWasStarted &&
+                                                (currentState == StreamState.STOPPED ||
+                                                    currentState == StreamState.CLOSED)
+                                        ) {
+                                          if (stopStream(generation)) {
+                                            wearablesViewModel.navigateToDeviceSelection()
+                                          }
+                                        }
                                       }
-                                  }
-                              }
-                          addedCamera.stream.start().onFailure { error, _ ->
-                            if (!isCurrentGeneration(generation, created)) return@onFailure
-                            Log.e(TAG, "Failed to start DAT camera stream: $error")
-                            stopStream()
+                                }
+                            false
                           }
                         }
+                        if (stale) {
+                          closeDatResources(camera = addedCamera, session = created)
+                          return@onSuccess
+                        }
+
+                        var startError: Exception? = null
+                        val startedForGeneration = synchronized(datOperationLock) {
+                          if (!isCurrentGeneration(generation, created)) {
+                            false
+                          } else {
+                            try {
+                              addedCamera.stream.start().onFailure { error, _ ->
+                                if (!isCurrentGeneration(generation, created)) return@onFailure
+                                Log.e(TAG, "Failed to start DAT camera stream: $error")
+                                stopStream(generation)
+                              }
+                            } catch (error: Exception) {
+                              startError = error
+                            }
+                            true
+                          }
+                        }
+                        if (!startedForGeneration) return@onSuccess
+                        startError?.let {
+                          Log.e(TAG, "Failed to start DAT camera stream", it)
+                          stopStream(generation)
+                        }
                       }
-                      if (stale) closeDatResources(camera = addedCamera, session = created)
-                    }
-                    .onFailure { error, _ ->
-                      if (!isCurrentGeneration(generation, created)) return@onFailure
-                      Log.e(TAG, "Failed to add DAT camera: $error")
-                      stopStream()
-                    }
-                  }
+                      .onFailure { error, _ ->
+                        if (!isCurrentGeneration(generation, created)) return@onFailure
+                        Log.e(TAG, "Failed to add DAT camera: $error")
+                        stopStream(generation)
+                      }
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                  throw error
+                } catch (error: Exception) {
+                  if (!isCurrentGeneration(generation, created)) return@launch
+                  Log.e(TAG, "Failed to add DAT camera", error)
+                  stopStream(generation)
+                }
+              }
           synchronized(lifecycleLock) {
             if (isCurrentGeneration(generation, created)) {
               cameraSetupJob = setupJob
@@ -276,7 +350,7 @@ class StreamViewModel(
         .onFailure { error, _ ->
           if (!isCurrentGeneration(generation)) return@onFailure
           Log.e(TAG, "Failed to create DAT session: $error")
-          stopStream()
+          stopStream(generation)
         }
   }
 
@@ -300,37 +374,52 @@ class StreamViewModel(
     Log.d(TAG, "Phone camera mode started")
   }
 
-  fun stopStream() {
-    val activeHandles = synchronized(lifecycleLock) {
-      lifecycleGeneration += 1L
-      val handles = camera to deviceSession
-      stream = null
-      camera = null
-      deviceSession = null
-      handles
-    }
-    val activeCamera = activeHandles.first
-    val activeSession = activeHandles.second
+  fun stopStream(expectedGeneration: Long? = null): Boolean {
+    val cleanup = synchronized(frameDeliveryLock) {
+      synchronized(lifecycleLock) {
+        if (expectedGeneration != null && lifecycleGeneration != expectedGeneration) {
+          null
+        } else {
+          lifecycleGeneration += 1L
+          val cleanup =
+              StreamCleanup(
+                  camera = camera,
+                  session = deviceSession,
+                  phoneCameraManager = phoneCameraManager,
+                  foregroundServiceWasStarted = foregroundServiceStarted,
+                  jobs = listOfNotNull(videoJob, stateJob, sessionStateJob, cameraSetupJob),
+                  generation = lifecycleGeneration,
+              )
+          videoJob = null
+          stateJob = null
+          sessionStateJob = null
+          cameraSetupJob = null
+          stream = null
+          camera = null
+          deviceSession = null
+          phoneCameraManager = null
+          foregroundServiceStarted = false
+          cleanup
+        }
+      }
+    } ?: return false
 
-    videoJob?.cancel()
-    videoJob = null
-    stateJob?.cancel()
-    stateJob = null
-    sessionStateJob?.cancel()
-    sessionStateJob = null
-    cameraSetupJob?.cancel()
-    cameraSetupJob = null
-
-    // A Camera owns its child Stream in DAT 0.9. Stop it before detaching the
-    // capability from the session, then discard the terminal session.
-    closeDatResources(camera = activeCamera, session = activeSession)
-    phoneCameraManager?.stop()
-    phoneCameraManager = null
-    if (foregroundServiceStarted) {
-      StreamingService.stop(getApplication())
-      foregroundServiceStarted = false
+    cleanup.jobs.forEach { it.cancel() }
+    synchronized(datOperationLock) {
+      // A Camera owns its child Stream in DAT 0.9. Stop it before detaching the
+      // capability from the session, then discard the terminal session.
+      closeDatResources(camera = cleanup.camera, session = cleanup.session)
+      cleanup.phoneCameraManager?.stop()
+      if (cleanup.foregroundServiceWasStarted) {
+        StreamingService.stop(getApplication())
+      }
     }
-    _uiState.update { INITIAL_STATE }
+    synchronized(lifecycleLock) {
+      if (lifecycleGeneration == cleanup.generation) {
+        _uiState.update { INITIAL_STATE }
+      }
+    }
+    return true
   }
 
   private fun isCurrentGeneration(generation: Long, session: DeviceSession? = null): Boolean {
@@ -343,36 +432,54 @@ class StreamViewModel(
    * failure cannot prevent the remaining handles from being released.
    */
   private fun closeDatResources(camera: Camera?, session: DeviceSession?) {
-    camera?.let {
-      try {
-        it.stop()
-      } catch (error: Exception) {
-        Log.w(TAG, "DAT camera stop failed: ${error.message}")
+    synchronized(datOperationLock) {
+      camera?.let {
+        try {
+          it.stop()
+        } catch (error: Exception) {
+          Log.w(TAG, "DAT camera stop failed: ${error.message}")
+        }
       }
-    }
-    if (camera != null && session != null) {
-      try {
-        session.removeCamera()
-      } catch (error: Exception) {
-        Log.w(TAG, "DAT camera detach failed: ${error.message}")
+      if (camera != null && session != null) {
+        try {
+          session.removeCamera().onFailure { error, _ ->
+            Log.w(TAG, "DAT camera detach failed: $error")
+          }
+        } catch (error: Exception) {
+          Log.w(TAG, "DAT camera detach failed: ${error.message}")
+        }
       }
-    }
-    session?.let {
-      try {
-        it.stop()
-      } catch (error: Exception) {
-        Log.w(TAG, "DAT session stop failed: ${error.message}")
+      session?.let {
+        try {
+          it.stop()
+        } catch (error: Exception) {
+          Log.w(TAG, "DAT session stop failed: ${error.message}")
+        }
       }
     }
   }
 
-  private fun startForegroundService() {
-    if (foregroundServiceStarted) return
-    try {
-      StreamingService.start(getApplication())
-      foregroundServiceStarted = true
-    } catch (error: Exception) {
-      Log.w(TAG, "Failed to start streaming foreground service", error)
+  private fun startForegroundService(generation: Long, session: DeviceSession) {
+    synchronized(datOperationLock) {
+      val shouldStart = synchronized(lifecycleLock) {
+        if (!isCurrentGeneration(generation, session) || foregroundServiceStarted) {
+          false
+        } else {
+          foregroundServiceStarted = true
+          true
+        }
+      }
+      if (!shouldStart) return
+      try {
+        StreamingService.start(getApplication())
+      } catch (error: Exception) {
+        synchronized(lifecycleLock) {
+          if (isCurrentGeneration(generation, session)) {
+            foregroundServiceStarted = false
+          }
+        }
+        Log.w(TAG, "Failed to start streaming foreground service", error)
+      }
     }
   }
 
@@ -504,11 +611,12 @@ class StreamViewModel(
         }
 
     val bitmap = BitmapFactory.decodeByteArray(out, 0, out.size) ?: return
-    synchronized(lifecycleLock) {
+    synchronized(frameDeliveryLock) {
       if (!isCurrentGeneration(generation)) return
       _uiState.update { it.copy(videoFrame = bitmap) }
 
-      // Forward to WebRTC (every frame) while the generation fence is held.
+      // Serialize bridge delivery with lifecycle retirement without holding
+      // the DAT lifecycle lock across the external WebRTC call.
       webrtcViewModel?.pushVideoFrame(bitmap)
     }
   }

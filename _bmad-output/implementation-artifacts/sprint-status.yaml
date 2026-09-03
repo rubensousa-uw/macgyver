@@ -42,7 +42,7 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-migrate-and-pin-the-dat-0-9-baseline: review
+  2-1-migrate-and-pin-the-dat-0-9-baseline: in-progress
   2-2-register-and-select-meta-adventurer: backlog
   2-3-operate-the-canonical-wearable-camera-lifecycle: backlog
   2-4-display-the-first-usable-adventurer-frame: backlog

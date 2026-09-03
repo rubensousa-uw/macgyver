@@ -2,7 +2,7 @@
 title: 'Migrate and Pin the DAT 0.9 Baseline'
 type: 'feature'
 created: '2026-08-30'
-status: 'done'
+status: 'in-progress'
 review_loop_iteration: 0
 baseline_commit: '4706c6aaae9d7f0daeb5bb9740656c2b74946b3e'
 context:
@@ -118,3 +118,22 @@ DAT 0.9 consolidates camera ownership: `DeviceSession.addStream` was removed in 
 
 - Confirm the sprint remains reviewable while fresh checkout verification is deferred.
   [`sprint-status.yaml:45`](sprint-status.yaml#L45)
+
+### Review Findings
+
+- [x] [Review][Defer] Story closure waits for current-checkout verification [spec frontmatter] — deferred, pre-existing; keep Story 2.1 open until the prescribed build and connected-test run is available for this checkout.
+- [x] [Review][Defer] MockDeviceKit scope remains an intentional implementation exception [app/build.gradle.kts:76] — deferred, pre-existing; existing main-source usage is documented, and relocation to a test/debug source set remains future cleanup.
+- [x] [Review][Patch] Session startup can race with generation retirement [StreamViewModel.kt:129; LiveKitSessionViewModel.kt:673] — resolved with generation claims and serialized DAT start operations.
+- [x] [Review][Patch] Stale callbacks can tear down a newer generation after a check-then-stop race [StreamViewModel.kt:151; LiveKitSessionViewModel.kt:698] — resolved with generation-aware stop operations.
+- [x] [Review][Patch] Teardown releases lifecycle state before cancelling and clearing all shared handles [StreamViewModel.kt:303; LiveKitSessionViewModel.kt:905] — resolved by snapshotting and clearing owned handles under the lifecycle lock before cleanup.
+- [x] [Review][Patch] External SDK and bridge calls run while lifecycle locks are held [StreamViewModel.kt:202; LiveKitSessionViewModel.kt:746] — resolved with separate serialized DAT and frame-delivery operation locks.
+- [x] [Review][Patch] Synchronous DAT exceptions can escape camera and stream setup [StreamViewModel.kt:193; LiveKitSessionViewModel.kt:253; LiveKitSessionViewModel.kt:743; LiveKitSessionViewModel.kt:852] — resolved with guarded session, camera, and stream start/setup calls.
+- [x] [Review][Patch] Normal DAT flow completion does not release the active lifecycle [StreamViewModel.kt:209; LiveKitSessionViewModel.kt:760] — resolved with normal-completion cleanup for session and camera flows.
+- [x] [Review][Patch] Camera-detach DatResult failures are ignored during ordered teardown [StreamViewModel.kt:353; LiveKitSessionViewModel.kt:947] — resolved by observing typed detach failures while continuing ordered cleanup.
+- [x] [Review][Defer] LiveKit glasses lifecycle lacks direct integration coverage [LiveKitSessionViewModel.kt:663] — deferred, pre-existing
+- [x] [Review][Defer] Raw-frame consumer rejection is covered only through the shared predicate [GlassesVideoCapturer.kt:54] — deferred, pre-existing
+- [x] [Review][Defer] Generation fencing has no deterministic late-callback test [StreamViewModel.kt:122; LiveKitSessionViewModel.kt:663] — deferred, pre-existing
+- [x] [Review][Defer] Teardown tests do not observe ordered DAT cleanup or wait for asynchronous release [StreamViewModel.kt:303; InstrumentationTest.kt:144] — deferred, pre-existing
+- [x] [Review][Defer] Photo results from retired generations have no test coverage [StreamViewModel.kt:397] — deferred, pre-existing
+- [x] [Review][Defer] Session timeout, setup failure, and foreground-service failure paths lack focused tests [StreamViewModel.kt:170; LiveKitSessionViewModel.kt:720] — deferred, pre-existing
+- [x] [Review][Defer] Practical frame-size limits need hardware-tuned validation before tightening the raw gate [StreamViewModel.kt:84] — deferred, pre-existing
